@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Optional
 import logging
 import threading
 
@@ -13,7 +13,8 @@ def init_logging(level: int = logging.INFO):
         level=level,
     )
     
-    logging.getLogger("websockets.server").setLevel(logging.WARNING)
+    if level >= logging.INFO:
+        logging.getLogger("websockets.server").setLevel(logging.WARNING)
     
 class PortPool:
     def __init__(self, pool: Iterable[int]) -> None:

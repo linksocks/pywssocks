@@ -13,62 +13,84 @@ from websockets.asyncio.server import ServerConnection, serve
 import click
 
 from pywssocks.common import PortPool, init_logging
+from pywssocks.relay import Relay
 
 logger = logging.getLogger(__name__)
 
-class WSSocksServer:    
+
+class WSSocksServer(Relay):
     def __init__(
         self,
         ws_host: str = "0.0.0.0",
         ws_port: int = 8765,
         socks_host: str = "127.0.0.1",
         socks_port_pool: Union[PortPool, range] = range(1024, 10240),
+        **kw,
     ) -> None:
         """Initialize WebSocket SOCKS5 Server
 
         Args:
             ws_host: WebSocket listen address
             ws_port: WebSocket listen port
-            socks_host: SOCKS5 listen address
-            socks_port_pool: SOCKS5 port pool
+            socks_host: SOCKS5 listen address for reverse proxy
+            socks_port_pool: SOCKS5 port pool for reverse proxy
         """
+
+        super().__init__(**kw)
 
         self._ws_host = ws_host
         self._ws_port = ws_port
         self._socks_host = socks_host
-        
+
         if isinstance(socks_port_pool, PortPool):
             self._socks_port_pool = socks_port_pool
         else:
             self._socks_port_pool = PortPool(socks_port_pool)
 
-        # Store all connected WebSocket clients, {client_id: websocket_connection}
+        # Store all connected reverse proxy clients, {client_id: websocket_connection}
         self._clients: dict[int, ServerConnection] = {}
 
-        # Group WebSocket clients by token, {token: list of (client_id, websocket) tuples}
+        # Group reverse proxy clients by token, {token: list of (client_id, websocket) tuples}
         self._token_clients: dict[str, list[tuple[int, ServerConnection]]] = {}
 
-        # Store current round-robin index for each token for load balancing, {token: current_index}
+        # Store current round-robin index for each reverse proxy token for load balancing, {token: current_index}
         self._token_indexes: dict[str, int] = {}
 
-        # Map tokens to their assigned SOCKS5 ports, {token: socks_port}
+        # Map reverse proxy tokens to their assigned SOCKS5 ports, {token: socks_port}
         self._tokens: dict[str, int] = {}
 
-        # Store all running SOCKS5 server instances, {socks_port: server_socket}
+        # Store all running SOCKS5 server instances, {socks_port: socks_socket}
         self._socks_servers: dict[int, socket.socket] = {}
 
-        # Message queues for data transfer between WebSocket and SOCKS5, {channel_id/connect_id: Queue}
+        # Message channels for receiving and routing from WebSocket, {channel_id: Queue}
         self._message_queues: dict[str, asyncio.Queue] = {}
+
+        # Store SOCKS5 auth credentials, {token: (username, password)}
+        self._socks_auth: dict[str, tuple[str, str]] = {}
 
         # Store SOCKS5 related async tasks, {socks_port: Task}
         self._socks_tasks: dict[int, asyncio.Task] = {}
 
-    def add_token(self, token: Optional[str] = None, port: Optional[int] = None):
+        # Store tokens for forward proxy
+        self._forward_tokens = set()
+
+        # Store all connected WebSocket clients, {client_id: websocket_connection}
+        self._forward_clients: dict[int, ServerConnection] = {}
+
+    def add_reverse_token(
+        self,
+        token: Optional[str] = None,
+        port: Optional[int] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ):
         """Add a new token for reverse socks and assign a port
 
         Args:
             token: Auth token, auto-generated if None
             port: Specific port to use, if None will allocate from port range
+            username: SOCKS5 username, no auth if None
+            password: SOCKS5 password, no auth if None
 
         Returns:
             (token, port) tuple containing the token and assigned SOCKS5 port
@@ -85,9 +107,27 @@ class WSSocksServer:
         port = self._socks_port_pool.get(port)
         if port:
             self._tokens[token] = port
+            if username is not None and password is not None:
+                self._socks_auth[token] = (username, password)
             return token, port
         else:
             return None, None
+
+    def add_forward_token(self, token: Optional[str] = None) -> str:
+        """Add a new token for forward socks proxy
+
+        Args:
+            token: Auth token, auto-generated if None
+
+        Returns:
+            token string
+        """
+        if token is None:
+            chars = string.ascii_letters + string.digits
+            token = "".join(random.choice(chars) for _ in range(16))
+
+        self._forward_tokens.add(token)
+        return token
 
     def _get_next_websocket(self, token: str) -> ServerConnection | None:
         """Get next available WebSocket connection using round-robin"""
@@ -104,14 +144,14 @@ class WSSocksServer:
 
         return clients[current_index][1]
 
-    async def _handle_socks_request(self, client_sock: socket.socket, token: str):
+    async def _handle_socks_request(self, socks_socket: socket.socket, token: str):
         """Handle SOCKS5 client request and establish connection through WebSocket"""
 
         # Use round-robin to get websocket connection
         websocket = self._get_next_websocket(token)
         if not websocket:
             logger.warning(f"No available client for SOCKS5 port {self._tokens[token]}.")
-            client_sock.close()
+            socks_socket.close()
             return
 
         client_id = id(websocket)
@@ -120,15 +160,42 @@ class WSSocksServer:
 
         try:
             # Set to non-blocking mode
-            client_sock.setblocking(False)
+            socks_socket.setblocking(False)
             loop = asyncio.get_event_loop()
 
             # Authentication method negotiation
             logger.debug(f"Starting SOCKS authentication for connect_id: {connect_id}")
-            data = await loop.sock_recv(client_sock, 2)
+            data = await loop.sock_recv(socks_socket, 2)
             version, nmethods = struct.unpack("!BB", data)
-            methods = await loop.sock_recv(client_sock, nmethods)
-            await loop.sock_sendall(client_sock, struct.pack("!BB", 0x05, 0x00))
+            methods = await loop.sock_recv(socks_socket, nmethods)
+
+            # Check if auth is required for this token
+            if token in self._socks_auth:
+                if 0x02 not in methods:  # 0x02 is username/password auth
+                    await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0xFF))
+                    return
+                # Send auth method selection (username/password)
+                await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0x02))
+
+                # Handle username/password auth
+                auth_version = (await loop.sock_recv(socks_socket, 1))[0]
+                if auth_version != 0x01:
+                    return
+
+                ulen = (await loop.sock_recv(socks_socket, 1))[0]
+                username = (await loop.sock_recv(socks_socket, ulen)).decode()
+                plen = (await loop.sock_recv(socks_socket, 1))[0]
+                password = (await loop.sock_recv(socks_socket, plen)).decode()
+
+                stored_username, stored_password = self._socks_auth[token]
+                if username != stored_username or password != stored_password:
+                    await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x01, 0x01))
+                    return
+                await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x01, 0x00))
+            else:
+                # No authentication required
+                await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0x00))
+
             logger.debug(f"SOCKS authentication completed for connect_id: {connect_id}")
 
             # Check WebSocket connection by attempting a ping
@@ -138,34 +205,35 @@ class WSSocksServer:
                 logger.debug(f"WebSocket closed for connect_id: {connect_id}")
                 # Return connection failure response to SOCKS client (0x04 = Host unreachable)
                 await loop.sock_sendall(
-                    client_sock, bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                    socks_socket,
+                    bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
                 )
                 return
 
             # Get request details
-            header = await loop.sock_recv(client_sock, 4)
+            header = await loop.sock_recv(socks_socket, 4)
             version, cmd, _, atyp = struct.unpack("!BBBB", header)
             logger.debug(f"Received SOCKS request - version: {version}, cmd: {cmd}, atyp: {atyp}")
 
             if cmd not in (0x01, 0x03):  # Support CONNECT and UDP ASSOCIATE commands
                 logger.debug(f"Unsupported SOCKS command: {cmd}")
-                client_sock.close()
+                socks_socket.close()
                 return
 
             # Parse target address
             if atyp == 0x01:  # IPv4
-                addr_bytes = await loop.sock_recv(client_sock, 4)
+                addr_bytes = await loop.sock_recv(socks_socket, 4)
                 target_addr = socket.inet_ntoa(addr_bytes)
             elif atyp == 0x03:  # Domain name
-                addr_len = (await loop.sock_recv(client_sock, 1))[0]
-                addr_bytes = await loop.sock_recv(client_sock, addr_len)
+                addr_len = (await loop.sock_recv(socks_socket, 1))[0]
+                addr_bytes = await loop.sock_recv(socks_socket, addr_len)
                 target_addr = addr_bytes.decode()
             else:
-                client_sock.close()
+                socks_socket.close()
                 return
 
             # Get port number
-            port_bytes = await loop.sock_recv(client_sock, 2)
+            port_bytes = await loop.sock_recv(socks_socket, 2)
             target_port = struct.unpack("!H", port_bytes)[0]
 
             # Create a temporary queue for connection response
@@ -197,7 +265,7 @@ class WSSocksServer:
                         error_msg = response_data.get("error", "Connection failed")
                         logger.error(f"Target connection failed: {error_msg}.")
                         await loop.sock_sendall(
-                            client_sock,
+                            socks_socket,
                             bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
                         )
                         return
@@ -206,11 +274,11 @@ class WSSocksServer:
                     if cmd == 0x01:  # CONNECT
                         # TCP connection successful, return success response
                         await loop.sock_sendall(
-                            client_sock,
+                            socks_socket,
                             bytes([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
                         )
-                        await self._handle_tcp_forward(
-                            client_sock, websocket, response_data["channel_id"]
+                        await self._handle_socks_tcp_forward(
+                            websocket, socks_socket, response_data["channel_id"]
                         )
                     else:  # UDP ASSOCIATE
                         # Get UDP binding information
@@ -223,11 +291,11 @@ class WSSocksServer:
                         reply = (
                             struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01) + bind_ip + bind_port_bytes
                         )
-                        await loop.sock_sendall(client_sock, reply)
+                        await loop.sock_sendall(socks_socket, reply)
 
                         # Keep TCP connection until client disconnects
-                        await self._handle_udp_associate(
-                            client_sock, websocket, response_data["channel_id"]
+                        await self._handle_socks_udp_associate(
+                            websocket, socks_socket, response_data["channel_id"]
                         )
 
                 except asyncio.TimeoutError:
@@ -235,14 +303,14 @@ class WSSocksServer:
                     response_future.cancel()
                     logger.error("Connection response timeout.")
                     await loop.sock_sendall(
-                        client_sock,
+                        socks_socket,
                         bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
                     )
                 except Exception as e:
                     logger.error(f"Error handling SOCKS request: {e.__class__.__name__}: {e}.")
                     try:
                         await loop.sock_sendall(
-                            client_sock,
+                            socks_socket,
                             bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
                         )
                     except:
@@ -256,91 +324,16 @@ class WSSocksServer:
             try:
                 reply = struct.pack("!BBBB", 0x05, 0x01, 0x00, 0x01)
                 reply += socket.inet_aton("0.0.0.0") + struct.pack("!H", 0)
-                await loop.sock_sendall(client_sock, reply)
+                await loop.sock_sendall(socks_socket, reply)
             except:
                 pass
         finally:
-            client_sock.close()
+            socks_socket.close()
             if connect_id and connect_id in self._message_queues:
                 del self._message_queues[connect_id]
 
-    async def _handle_udp_associate(
-        self, client_sock: socket.socket, websocket: ServerConnection, channel_id: str
-    ):
-        """Handle UDP forwarding association"""
-
-        try:
-            # Keep TCP connection until client disconnects
-            while True:
-                try:
-                    # Check if TCP connection is closed
-                    data = await asyncio.get_event_loop().sock_recv(client_sock, 1)
-                    if not data:
-                        break
-                except:
-                    break
-        finally:
-            client_sock.close()
-
-    async def _handle_tcp_forward(
-        self, client_sock: socket.socket, websocket: ServerConnection, channel_id: str
-    ) -> None:
-        """Handle TCP data forwarding"""
-
-        try:
-            message_queue = asyncio.Queue()
-            self._message_queues[channel_id] = message_queue
-
-            while True:
-                try:
-                    # Read data from SOCKS client
-                    try:
-                        data = client_sock.recv(4096)
-                        if not data:  # Connection closed
-                            break
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "data",
-                                    "protocol": "tcp",
-                                    "channel_id": channel_id,
-                                    "data": data.hex(),
-                                }
-                            )
-                        )
-                    except BlockingIOError:
-                        pass
-                    except ConnectionClosed:
-                        # Exit when WebSocket connection is closed
-                        break
-                    except Exception as e:
-                        logger.error(f"Send data error: {e.__class__.__name__}: {e}.")
-                        break
-
-                    # Receive data from WebSocket client
-                    try:
-                        msg_data = await asyncio.wait_for(message_queue.get(), timeout=0.1)
-                        binary_data = bytes.fromhex(msg_data["data"])
-                        client_sock.send(binary_data)
-                    except asyncio.TimeoutError:
-                        continue
-                    except Exception as e:
-                        logger.error(f"Receive data error: {e.__class__.__name__}: {e}.")
-                        break
-
-                except Exception as e:
-                    logger.error(f"Data forwarding error: {e.__class__.__name__}: {e}.")
-                    break
-
-        finally:
-            # Clean up resources
-            client_sock.close()
-            if channel_id in self._message_queues:
-                del self._message_queues[channel_id]
-
     async def _handle_websocket(self, websocket: ServerConnection) -> None:
         """Handle WebSocket connection"""
-
         client_id = None
         token = None
         socks_port = None
@@ -348,30 +341,43 @@ class WSSocksServer:
             auth_message = await websocket.recv()
             auth_data = json.loads(auth_message)
 
-            if auth_data["type"] != "auth" or auth_data["token"] not in self._tokens:
+            if auth_data.get("type", None) != "auth":
+                await websocket.close(1008, "Invalid auth message")
+                return
+
+            token = auth_data.get("token", None)
+            reverse = auth_data.get("reverse", None)
+
+            # Validate token
+            if reverse == True and token in self._tokens:  # reverse proxy
+                socks_port = self._tokens[token]
+                client_id = id(websocket)
+
+                if token not in self._token_clients:
+                    self._token_clients[token] = []
+                self._token_clients[token].append((client_id, websocket))
+                self._clients[client_id] = websocket
+
+                await websocket.send(json.dumps({"type": "auth_response", "success": True}))
+                logger.info(f"Reverse client {client_id} authenticated")
+
+                # Ensure SOCKS server is running
+                if socks_port not in self._socks_servers:
+                    asyncio.create_task(self._run_socks_server(token, socks_port))
+
+            elif reverse == False and token in self._forward_tokens:  # forward proxy
+                client_id = id(websocket)
+                self._forward_clients[client_id] = websocket
+
+                await websocket.send(json.dumps({"type": "auth_response", "success": True}))
+                logger.info(f"Forward client {client_id} authenticated")
+
+            else:
+                await websocket.send(json.dumps({"type": "auth_response", "success": False}))
                 await websocket.close(1008, "Invalid token")
                 return
 
-            token = auth_data["token"]
-            socks_port = self._tokens[token]
-            client_id = id(websocket)
-
-            if token not in self._token_clients:
-                self._token_clients[token] = []
-            self._token_clients[token].append((client_id, websocket))
-            self._clients[client_id] = websocket
-
-            await websocket.send(json.dumps({"type": "auth_response", "success": True}))
-
-            logger.info(
-                f"Client {client_id} authenticated, using SOCKS5 server on: {self._socks_host}:{socks_port}"
-            )
-
-            # Ensure SOCKS server is running
-            if socks_port not in self._socks_servers:
-                asyncio.create_task(self._run_socks_server(token, socks_port))
-
-            receiver_task = asyncio.create_task(self._ws_message_receiver(websocket, client_id))
+            receiver_task = asyncio.create_task(self._message_dispatcher(websocket, client_id))
             heartbeat_task = asyncio.create_task(self._ws_heartbeat(websocket, client_id))
 
             done, pending = await asyncio.wait(
@@ -444,23 +450,27 @@ class WSSocksServer:
             except:
                 pass
 
-    async def _ws_message_receiver(self, websocket: ServerConnection, client_id: int) -> None:
-        """Separated WebSocket message receiver"""
+    async def _message_dispatcher(self, websocket: ServerConnection, client_id: int) -> None:
+        """WebSocket message receiver distributing messages to different message queues"""
 
         try:
             while True:
                 try:
                     msg = await asyncio.wait_for(websocket.recv(), timeout=60)  # 60 seconds timeout
-                    msg_data = json.loads(msg)
+                    data = json.loads(msg)
 
-                    if msg_data["type"] == "data":
-                        channel_id = msg_data["channel_id"]
+                    if data["type"] == "data":
+                        channel_id = data["channel_id"]
                         if channel_id in self._message_queues:
-                            await self._message_queues[channel_id].put(msg_data)
-                    elif msg_data["type"] == "connect_response":
-                        connect_id = msg_data["connect_id"]
+                            await self._message_queues[channel_id].put(data)
+                    elif data["type"] == "connect_response":
+                        logger.debug(f"Received network connection response: {data}")
+                        connect_id = data["connect_id"]
                         if connect_id in self._message_queues:
-                            await self._message_queues[connect_id].put(msg_data)
+                            await self._message_queues[connect_id].put(data)
+                    elif data["type"] == "connect" and client_id in self._forward_clients:
+                        logger.debug(f"Received network connection request: {data}")
+                        asyncio.create_task(self._handle_network_connection(websocket, data))
                 except asyncio.TimeoutError:
                     # If 60 seconds pass without receiving messages, check if connection is still alive
                     try:
@@ -520,52 +530,69 @@ class WSSocksServer:
                 logger.error(f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}.")
                 await asyncio.sleep(0.1)
 
-    async def _start(self):
+    async def start(self):
         """Start WebSocket server"""
 
         async with serve(self._handle_websocket, self._ws_host, self._ws_port):
             logger.info(f"WebSocket server started on: ws://{self._ws_host}:{self._ws_port}")
+            logger.info(f"Waiting for a client to connect.")
             await asyncio.Future()  # Keep server running
 
 
 @click.command()
 @click.option("--ws-host", "-H", default="0.0.0.0", help="WebSocket server listen address")
 @click.option("--ws-port", "-P", default=8765, help="WebSocket server listen port")
-@click.option("--socks-host", "-h", default="127.0.0.1", help="SOCKS5 server listen address")
+@click.option(
+    "--token", "-t", default=None, help="Specify auth token, auto-generate if not provided"
+)
+@click.option("--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy")
+@click.option(
+    "--socks-host", "-h", default="127.0.0.1", help="SOCKS5 server listen address for reverse proxy"
+)
 @click.option(
     "--socks-port",
     "-p",
     default=1080,
-    help="SOCKS5 server listen port, auto-generate if not provided",
+    help="SOCKS5 server listen port for reverse proxy, auto-generate if not provided",
 )
-@click.option(
-    "--token", "-t", default=None, help="Specify auth token, auto-generate if not provided"
-)
+@click.option("--socks-username", "-n", default=None, help="SOCKS5 username for authentication")
+@click.option("--socks-password", "-w", default=None, help="SOCKS5 password for authentication")
 @click.option("--debug", "-d", is_flag=True, default=False, help="Show debug logs")
-def _server_cli(ws_host, ws_port, socks_host, socks_port, token, debug):
+def _server_cli(
+    ws_host, ws_port, token, reverse, socks_host, socks_port, socks_username, socks_password, debug
+):
     """Start SOCKS5 over WebSocket proxy server"""
 
     init_logging(level=logging.DEBUG if debug else logging.INFO)
 
-    # Create server instance with single port range
+    # Create server instance
     server = WSSocksServer(
         ws_host=ws_host,
         ws_port=ws_port,
         socks_host=socks_host,
     )
 
-    # Add token with specific port
-    token, port = server.add_token(token, socks_port)
-
-    if port:
-        logger.info(f"Configuration:")
-        logger.info(f"  Token: {token}")
-        logger.info(f"  SOCKS5 port: {port}")
-
-        # Start server
-        asyncio.run(server._start())
+    # Add token based on mode
+    if reverse:
+        token, port = server.add_reverse_token(token, socks_port, socks_username, socks_password)
+        if port:
+            logger.info(f"Configuration:")
+            logger.info(f"  Mode: reverse proxy (SOCKS5 on server -> client -> network)")
+            logger.info(f"  Token: {token}")
+            logger.info(f"  SOCKS5 port: {port}")
+            if socks_username and socks_password:
+                logger.info(f"  SOCKS5 auth: enabled (username: {socks_username})")
+        else:
+            logger.error(f"Cannot allocate SOCKS5 port: {socks_host}:{socks_port}")
+            return
     else:
-        logger.error("Cannot allocate SOCKS5 port.")
+        token = server.add_forward_token(token)
+        logger.info(f"Configuration:")
+        logger.info(f"  Mode: forward proxy (SOCKS5 on client -> server -> network)")
+        logger.info(f"  Token: {token}")
+
+    # Start server
+    asyncio.run(server.start())
 
 
 if __name__ == "__main__":
