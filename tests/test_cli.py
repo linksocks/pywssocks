@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import time
 import pytest
 import socket
@@ -122,7 +123,7 @@ def wait_for_output(process, text, timeout=5):
     start_time = time.time()
     while time.time() - start_time < timeout:
         line = process.stderr.readline().decode()
-        print(line)
+        print(line, file=sys.stderr)
         if text.lower() in line.lower():
             return True
         if process.poll() is not None:
@@ -140,13 +141,21 @@ def assert_proxy_connection(socks_port, socks_auth=None):
         "http": proxy_url,
         "https": proxy_url,
     }
-    try:
-        response = requests.get(
-            "http://www.gstatic.com/generate_204", proxies=proxies, timeout=5
-        )
-        assert response.status_code == 204
-    except requests.ConnectionError:
-        raise RuntimeError(f"fail to connect to proxy") from None
+    reasons = []
+    for _ in range(5):
+        try:
+            response = requests.get(
+                "http://www.gstatic.com/generate_204", proxies=proxies, timeout=5
+            )
+            if not response.status_code == 204:
+                reasons.append(f"status_code == {response.status_code} != 204")
+            else:
+                break
+        except requests.ConnectionError as e:
+            reasons.append(f"connection error: {e}")
+        time.sleep(1)
+    else:
+        raise RuntimeError(f"proxy connection failed 5 times: {', '.join(reasons)}")
 
 
 def test_forward(unused_ports):
