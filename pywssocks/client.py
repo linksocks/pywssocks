@@ -27,7 +27,7 @@ class WSSocksClient(Relay):
         socks_username: Optional[str] = None,
         socks_password: Optional[str] = None,
         **kw,
-    ):
+    ) -> None:
         """Initialize WebSocket SOCKS5 client
 
         Args:
@@ -52,7 +52,7 @@ class WSSocksClient(Relay):
         self._socks_server: Optional[socket.socket] = None
         self._websocket: Optional[ClientConnection] = None
 
-    async def _message_dispatcher(self, websocket: ClientConnection):
+    async def _message_dispatcher(self, websocket: ClientConnection) -> None:
         """Global WebSocket message dispatcher"""
 
         try:
@@ -84,7 +84,7 @@ class WSSocksClient(Relay):
         except Exception as e:
             logger.error(f"Message dispatcher error: {e.__class__.__name__}: {e}.")
 
-    async def _run_socks_server(self):
+    async def _run_socks_server(self) -> None:
         """Run local SOCKS5 server"""
         try:
             socks_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -114,7 +114,7 @@ class WSSocksClient(Relay):
             if self._socks_server:
                 self._socks_server.close()
 
-    async def _handle_socks_request(self, socks_socket: socket.socket):
+    async def _handle_socks_request(self, socks_socket: socket.socket) -> None:
         """Handle SOCKS5 client request"""
 
         if not self._websocket:
@@ -328,7 +328,7 @@ class WSSocksClient(Relay):
             if connect_id and connect_id in self._message_queues:
                 del self._message_queues[connect_id]
 
-    async def _start_forward(self):
+    async def _start_forward(self) -> None:
         """Connect to WebSocket server in forward proxy mode"""
 
         try:
@@ -381,7 +381,7 @@ class WSSocksClient(Relay):
         finally:
             await self._cleanup_connections()
 
-    async def _start_reverse(self):
+    async def _start_reverse(self) -> None:
         """Connect to WebSocket server in reverse proxy mode"""
 
         try:
@@ -455,7 +455,7 @@ class WSSocksClient(Relay):
             await self._cleanup_connections()
             return
 
-    async def _heartbeat_handler(self, websocket: ClientConnection):
+    async def _heartbeat_handler(self, websocket: ClientConnection) -> None:
         """Handle WebSocket heartbeat"""
 
         try:

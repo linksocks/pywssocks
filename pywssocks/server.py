@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 import logging
 import asyncio
 import json
@@ -83,7 +83,7 @@ class WSSocksServer(Relay):
         port: Optional[int] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
-    ):
+    )-> Union[Tuple[str, int], Tuple[None, None]]:
         """Add a new token for reverse socks and assign a port
 
         Args:
@@ -129,7 +129,7 @@ class WSSocksServer(Relay):
         self._forward_tokens.add(token)
         return token
 
-    def _get_next_websocket(self, token: str) -> ServerConnection | None:
+    def _get_next_websocket(self, token: str) -> Optional[ServerConnection]:
         """Get next available WebSocket connection using round-robin"""
 
         if token not in self._token_clients or not self._token_clients[token]:
@@ -144,7 +144,7 @@ class WSSocksServer(Relay):
 
         return clients[current_index][1]
 
-    async def _handle_socks_request(self, socks_socket: socket.socket, token: str):
+    async def _handle_socks_request(self, socks_socket: socket.socket, token: str) -> None:
         """Handle SOCKS5 client request and establish connection through WebSocket"""
 
         # Use round-robin to get websocket connection
@@ -463,7 +463,7 @@ class WSSocksServer(Relay):
         finally:
             await self._cleanup_connection(client_id, token)
 
-    async def _cleanup_connection(self, client_id: Optional[int], token: Optional[str]):
+    async def _cleanup_connection(self, client_id: Optional[int], token: Optional[str]) -> None:
         """Clean up resources without closing SOCKS server"""
 
         if not client_id or not token:
@@ -563,7 +563,7 @@ class WSSocksServer(Relay):
                 f"WebSocket receive error for client {client_id}: {e.__class__.__name__}: {e}."
             )
 
-    async def _run_socks_server(self, token: str, socks_port: int):
+    async def _run_socks_server(self, token: str, socks_port: int) -> None:
         """Modified SOCKS server startup function"""
 
         # If server is already running, return immediately
