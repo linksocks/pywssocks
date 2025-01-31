@@ -10,7 +10,10 @@ This tool allows you to securely expose SOCKS proxy services under Web Applicati
 
 1. Both client and server modes, supporting command-line usage or library integration.
 2. Forward and reverse proxy capabilities.
-3. Round-robin load balancing.
+3. Round-robin load balancing for reverse proxy.
+4. SOCKS proxy authentication support.
+5. IPv6 over SOCKS5 support.
+6. UDP over SOCKS5 support.
 
 ## Usage
 
