@@ -1,15 +1,14 @@
+from typing import Optional
 import asyncio
 import socket
 import json
 import logging
-from typing import Dict, Optional
 import uuid
 import struct
 
 import click
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import ClientConnection, connect
-
 
 from pywssocks.common import init_logging
 from pywssocks.relay import Relay
@@ -40,7 +39,7 @@ class WSSocksClient(Relay):
             socks_password: SOCKS5 authentication password
         """
         super().__init__(**kw)
-        
+
         self._ws_url: str = ws_url
         self._token: str = token
         self._reverse: bool = reverse
@@ -65,10 +64,14 @@ class WSSocksClient(Relay):
                     if channel_id in self._message_queues:
                         await self._message_queues[channel_id].put(data)
                     else:
-                        logger.warning(f"Received data for unknown channel: {channel_id}")
+                        logger.warning(
+                            f"Received data for unknown channel: {channel_id}"
+                        )
                 elif data["type"] == "connect":
                     logger.debug(f"Received network connection request: {data}")
-                    asyncio.create_task(self._handle_network_connection(websocket, data))
+                    asyncio.create_task(
+                        self._handle_network_connection(websocket, data)
+                    )
                 elif data["type"] == "connect_response":
                     logger.debug(f"Received network connection response: {data}")
                     connect_id = data["connect_id"]
@@ -91,7 +94,9 @@ class WSSocksClient(Relay):
             socks_server.setblocking(False)
 
             self._socks_server = socks_server
-            logger.info(f"SOCKS5 server started on {self._socks_host}:{self._socks_port}")
+            logger.info(
+                f"SOCKS5 server started on {self._socks_host}:{self._socks_port}"
+            )
 
             loop = asyncio.get_event_loop()
             while True:
@@ -113,7 +118,9 @@ class WSSocksClient(Relay):
         """Handle SOCKS5 client request"""
 
         if not self._websocket:
-            logger.error("Fail to handle socks request without valid Websocket connection.")
+            logger.error(
+                "Fail to handle socks request without valid Websocket connection."
+            )
             return
         try:
             socks_socket.setblocking(False)
@@ -127,22 +134,26 @@ class WSSocksClient(Relay):
             if self._socks_username and self._socks_password:
                 # Require username/password authentication
                 if 0x02 not in methods:
-                    await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0xFF))
+                    await loop.sock_sendall(
+                        socks_socket, struct.pack("!BB", 0x05, 0xFF)
+                    )
                     return
                 await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0x02))
-                
+
                 # Perform username/password authentication
                 auth_version = (await loop.sock_recv(socks_socket, 1))[0]
                 if auth_version != 0x01:
                     return
-                
+
                 ulen = (await loop.sock_recv(socks_socket, 1))[0]
                 username = (await loop.sock_recv(socks_socket, ulen)).decode()
                 plen = (await loop.sock_recv(socks_socket, 1))[0]
                 password = (await loop.sock_recv(socks_socket, plen)).decode()
-                
+
                 if username != self._socks_username or password != self._socks_password:
-                    await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x01, 0x01))
+                    await loop.sock_sendall(
+                        socks_socket, struct.pack("!BB", 0x01, 0x01)
+                    )
                     return
                 await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x01, 0x00))
             else:
@@ -174,7 +185,7 @@ class WSSocksClient(Relay):
             target_port = struct.unpack("!H", port_bytes)[0]
 
             connect_id = str(uuid.uuid4())
-            
+
             # Create a temporary queue for connection response
             connect_queue = asyncio.Queue()
             self._message_queues[connect_id] = connect_queue
@@ -196,7 +207,9 @@ class WSSocksClient(Relay):
                 try:
                     # Wait for client connection result
                     response = await asyncio.wait_for(response_future, timeout=10)
-                    response_data = json.loads(response) if isinstance(response, str) else response
+                    response_data = (
+                        json.loads(response) if isinstance(response, str) else response
+                    )
 
                     if not response_data.get("success", False):
                         # Connection failed, return failure response to SOCKS client
@@ -204,7 +217,20 @@ class WSSocksClient(Relay):
                         logger.error(f"Target connection failed: {error_msg}.")
                         await loop.sock_sendall(
                             socks_socket,
-                            bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+                            bytes(
+                                [
+                                    0x05,
+                                    0x04,
+                                    0x00,
+                                    0x01,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                ]
+                            ),
                         )
                         return
 
@@ -213,7 +239,20 @@ class WSSocksClient(Relay):
                         # TCP connection successful, return success response
                         await loop.sock_sendall(
                             socks_socket,
-                            bytes([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+                            bytes(
+                                [
+                                    0x05,
+                                    0x00,
+                                    0x00,
+                                    0x01,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                ]
+                            ),
                         )
                         await self._handle_socks_tcp_forward(
                             self._websocket, socks_socket, response_data["channel_id"]
@@ -227,7 +266,9 @@ class WSSocksClient(Relay):
                         bind_ip = socket.inet_aton(bound_addr)
                         bind_port_bytes = struct.pack("!H", bound_port)
                         reply = (
-                            struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01) + bind_ip + bind_port_bytes
+                            struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01)
+                            + bind_ip
+                            + bind_port_bytes
                         )
                         await loop.sock_sendall(socks_socket, reply)
 
@@ -242,14 +283,31 @@ class WSSocksClient(Relay):
                     logger.error("Connection response timeout.")
                     await loop.sock_sendall(
                         socks_socket,
-                        bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+                        bytes(
+                            [0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+                        ),
                     )
                 except Exception as e:
-                    logger.error(f"Error handling SOCKS request: {e.__class__.__name__}: {e}.")
+                    logger.error(
+                        f"Error handling SOCKS request: {e.__class__.__name__}: {e}."
+                    )
                     try:
                         await loop.sock_sendall(
                             socks_socket,
-                            bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+                            bytes(
+                                [
+                                    0x05,
+                                    0x04,
+                                    0x00,
+                                    0x01,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                    0x00,
+                                ]
+                            ),
                         )
                     except:
                         pass
@@ -279,7 +337,11 @@ class WSSocksClient(Relay):
                     async with connect(self._ws_url) as websocket:
                         self._websocket = websocket
 
-                        await websocket.send(json.dumps({"type": "auth", "reverse": False, "token": self._token}))
+                        await websocket.send(
+                            json.dumps(
+                                {"type": "auth", "reverse": False, "token": self._token}
+                            )
+                        )
                         auth_response = await websocket.recv()
                         auth_data = json.loads(auth_response)
 
@@ -304,7 +366,9 @@ class WSSocksClient(Relay):
 
                         await asyncio.gather(*pending, return_exceptions=True)
                 except ConnectionClosed:
-                    logger.error("WebSocket connection closed. Retrying in 5 seconds...")
+                    logger.error(
+                        "WebSocket connection closed. Retrying in 5 seconds..."
+                    )
                     await asyncio.sleep(5)
                 except Exception as e:
                     logger.error(
@@ -325,7 +389,11 @@ class WSSocksClient(Relay):
                 try:
                     async with connect(self._ws_url) as websocket:
                         # Send authentication information
-                        await websocket.send(json.dumps({"type": "auth", "reverse": True, "token": self._token}))
+                        await websocket.send(
+                            json.dumps(
+                                {"type": "auth", "reverse": True, "token": self._token}
+                            )
+                        )
 
                         # Wait for authentication response
                         auth_response = await websocket.recv()
@@ -372,7 +440,9 @@ class WSSocksClient(Relay):
                             await self._cleanup_connections()
 
                 except ConnectionClosed:
-                    logger.error("WebSocket connection closed. Retrying in 5 seconds...")
+                    logger.error(
+                        "WebSocket connection closed. Retrying in 5 seconds..."
+                    )
                     await asyncio.sleep(5)
                 except Exception as e:
                     logger.error(
@@ -448,10 +518,17 @@ class WSSocksClient(Relay):
 
 @click.command()
 @click.option("--token", "-t", required=True, help="Authentication token")
-@click.option("--url", "-u", default="ws://localhost:8765", help="WebSocket server address")
-@click.option("--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy")
 @click.option(
-    "--socks-host", "-h", default="127.0.0.1", help="SOCKS5 server listen address for forward proxy"
+    "--url", "-u", default="ws://localhost:8765", help="WebSocket server address"
+)
+@click.option(
+    "--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy"
+)
+@click.option(
+    "--socks-host",
+    "-h",
+    default="127.0.0.1",
+    help="SOCKS5 server listen address for forward proxy",
 )
 @click.option(
     "--socks-port",
@@ -463,14 +540,14 @@ class WSSocksClient(Relay):
 @click.option("--socks-password", "-w", help="SOCKS5 authentication password")
 @click.option("--debug", "-d", is_flag=True, default=False, help="Show debug logs")
 def _client_cli(
-    token: str, 
-    url: str, 
-    reverse: bool, 
-    socks_host: str, 
-    socks_port: int, 
+    token: str,
+    url: str,
+    reverse: bool,
+    socks_host: str,
+    socks_port: int,
     socks_username: Optional[str],
     socks_password: Optional[str],
-    debug: bool
+    debug: bool,
 ):
     """Start SOCKS5 over WebSocket proxy client"""
 

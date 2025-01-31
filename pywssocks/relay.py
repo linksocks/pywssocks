@@ -10,36 +10,49 @@ from websockets.exceptions import ConnectionClosed
 
 logger = logging.getLogger(__name__)
 
+
 class Relay:
     def __init__(self, buffer_size: int = 32768):
         self._buf_size = buffer_size
-        
+
         # Map channel_id to message queues
         self._message_queues: Dict[str, asyncio.Queue] = {}
-        
+
         # Map channel_id to TCP socket objects
         self._channels: Dict[str, socket.socket] = {}
 
         # Map channel_id to UDP socket objects
         self._udp_channels: Dict[str, socket.socket] = {}
-    
-    async def _handle_network_connection(self, websocket: Connection, request_data: dict):
+
+    async def _handle_network_connection(
+        self, websocket: Connection, request_data: dict
+    ):
         """Handle remote connection request"""
 
-        channel_id = str(uuid.uuid4()) # channel_id is the message_queue index on our side.
-        connect_id = request_data["connect_id"] # connect_id is the message_queue index on the connector side.
+        channel_id = str(
+            uuid.uuid4()
+        )  # channel_id is the message_queue index on our side.
+        connect_id = request_data[
+            "connect_id"
+        ]  # connect_id is the message_queue index on the connector side.
         cmd = request_data.get("cmd", 0x01)  # Get SOCKS command type
 
         try:
             if cmd == 0x01:  # CONNECT
-                await self._handle_tcp_connection(websocket, request_data, channel_id, connect_id)
+                await self._handle_tcp_connection(
+                    websocket, request_data, channel_id, connect_id
+                )
             elif cmd == 0x03:  # UDP ASSOCIATE
-                await self._handle_udp_association(websocket, request_data, channel_id, connect_id)
+                await self._handle_udp_association(
+                    websocket, request_data, channel_id, connect_id
+                )
             else:
                 raise Exception(f"Unsupported SOCKS5 command: {cmd}")
 
         except Exception as e:
-            logger.error(f"Failed to process connection request: {e.__class__.__name__}: {e}.")
+            logger.error(
+                f"Failed to process connection request: {e.__class__.__name__}: {e}."
+            )
             response_data = {
                 "type": "connect_response",
                 "success": False,
@@ -49,7 +62,11 @@ class Relay:
             await websocket.send(json.dumps(response_data))
 
     async def _handle_tcp_connection(
-        self, websocket: Connection, request_data: dict, channel_id: str, connect_id: str
+        self,
+        websocket: Connection,
+        request_data: dict,
+        channel_id: str,
+        connect_id: str,
     ):
         """Handle TCP connection request"""
 
@@ -75,7 +92,11 @@ class Relay:
         await self._handle_remote_tcp_forward(websocket, remote_sock, channel_id)
 
     async def _handle_udp_association(
-        self, websocket: Connection, request_data: dict, channel_id: str, connect_id: str
+        self,
+        websocket: Connection,
+        request_data: dict,
+        channel_id: str,
+        connect_id: str,
     ):
         """Handle UDP forwarding request"""
 
@@ -196,7 +217,7 @@ class Relay:
                 del self._channels[channel_id]
             if channel_id in self._message_queues:
                 del self._message_queues[channel_id]
-                
+
     async def _handle_socks_tcp_forward(
         self, websocket: Connection, socks_socket: socket.socket, channel_id: str
     ) -> None:
@@ -234,13 +255,17 @@ class Relay:
 
                     # Receive data from WebSocket client
                     try:
-                        msg_data = await asyncio.wait_for(message_queue.get(), timeout=0.1)
+                        msg_data = await asyncio.wait_for(
+                            message_queue.get(), timeout=0.1
+                        )
                         binary_data = bytes.fromhex(msg_data["data"])
                         socks_socket.send(binary_data)
                     except asyncio.TimeoutError:
                         continue
                     except Exception as e:
-                        logger.error(f"Receive data error: {e.__class__.__name__}: {e}.")
+                        logger.error(
+                            f"Receive data error: {e.__class__.__name__}: {e}."
+                        )
                         break
 
                 except Exception as e:
@@ -252,7 +277,7 @@ class Relay:
             socks_socket.close()
             if channel_id in self._message_queues:
                 del self._message_queues[channel_id]
-                
+
     async def _handle_socks_udp_associate(
         self, websocket: Connection, socks_socket: socket.socket, channel_id: str
     ):

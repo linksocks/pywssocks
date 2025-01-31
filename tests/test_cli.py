@@ -1,10 +1,11 @@
-import requests
 import subprocess
 import time
 import pytest
 import socket
 import contextlib
 import threading
+
+import requests
 
 SERVER_START_MSG = "WebSocket server started"
 CLIENT_START_MSG = "Authentication successful"
@@ -37,7 +38,7 @@ def forward_proxy(unused_ports, socks_auth=None):
             stderr=subprocess.PIPE,
         )
         time.sleep(0.5)
-        
+
         client_cmd = [
             "pywssocks",
             "client",
@@ -50,13 +51,13 @@ def forward_proxy(unused_ports, socks_auth=None):
         ]
         if socks_auth:
             client_cmd.extend(["-n", socks_auth[0], "-w", socks_auth[1]])
-            
+
         client_process = subprocess.Popen(
             client_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
+
         assert wait_for_output(server_process, SERVER_START_MSG, 10)
         assert wait_for_output(client_process, CLIENT_START_MSG, 10)
         yield server_process, client_process, ws_port, socks_port
@@ -85,7 +86,7 @@ def reverse_proxy(unused_ports, socks_auth=None):
         ]
         if socks_auth:
             server_cmd.extend(["-n", socks_auth[0], "-w", socks_auth[1]])
-            
+
         server_process = subprocess.Popen(
             server_cmd,
             stdout=subprocess.PIPE,
@@ -105,7 +106,7 @@ def reverse_proxy(unused_ports, socks_auth=None):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
+
         assert wait_for_output(server_process, SERVER_START_MSG, 10)
         assert wait_for_output(client_process, CLIENT_START_MSG, 10)
         yield server_process, client_process, ws_port, socks_port
@@ -125,7 +126,9 @@ def wait_for_output(process, text, timeout=5):
         if text.lower() in line.lower():
             return True
         if process.poll() is not None:
-            raise RuntimeError(f"process terminated unexpectedly while waiting for '{text}'")
+            raise RuntimeError(
+                f"process terminated unexpectedly while waiting for '{text}'"
+            )
     return False
 
 
@@ -138,7 +141,9 @@ def assert_proxy_connection(socks_port, socks_auth=None):
         "https": proxy_url,
     }
     try:
-        response = requests.get("http://www.gstatic.com/generate_204", proxies=proxies, timeout=5)
+        response = requests.get(
+            "http://www.gstatic.com/generate_204", proxies=proxies, timeout=5
+        )
         assert response.status_code == 204
     except requests.ConnectionError:
         raise RuntimeError(f"fail to connect to proxy") from None
@@ -150,9 +155,14 @@ def test_forward(unused_ports):
 
 
 def test_forward_reconnect(unused_ports):
-    with forward_proxy(unused_ports) as (server_process, client_process, ws_port, socks_port):
+    with forward_proxy(unused_ports) as (
+        server_process,
+        client_process,
+        ws_port,
+        socks_port,
+    ):
         assert_proxy_connection(socks_port)
-        
+
         # Kill server and check for retry message
         server_process.terminate()
         server_process.wait()
@@ -172,13 +182,19 @@ def test_forward_reconnect(unused_ports):
         # Test connection
         assert_proxy_connection(socks_port)
 
+
 def test_reverse(unused_ports):
     with reverse_proxy(unused_ports) as (_, _, _, socks_port):
         assert_proxy_connection(socks_port)
 
 
 def test_reverse_reconnect(unused_ports):
-    with reverse_proxy(unused_ports) as (server_process, client_process, ws_port, socks_port):
+    with reverse_proxy(unused_ports) as (
+        server_process,
+        client_process,
+        ws_port,
+        socks_port,
+    ):
         assert_proxy_connection(socks_port)
 
         # Kill client and check for closed message
@@ -201,79 +217,95 @@ def test_reverse_reconnect(unused_ports):
             stderr=subprocess.PIPE,
         )
         assert wait_for_output(client_process, CLIENT_START_MSG)
-        
+
         # Test connection
         assert_proxy_connection(socks_port)
 
 
 def test_forward_with_auth(unused_ports):
-    socks_auth=("test_user", "test_pass")
+    socks_auth = ("test_user", "test_pass")
     with forward_proxy(unused_ports, socks_auth=socks_auth) as (_, _, _, socks_port):
         assert_proxy_connection(socks_port, socks_auth=socks_auth)
 
 
 def test_reverse_with_auth(unused_ports):
-    socks_auth=("test_user", "test_pass")
+    socks_auth = ("test_user", "test_pass")
     with reverse_proxy(unused_ports, socks_auth=socks_auth) as (_, _, _, socks_port):
         assert_proxy_connection(socks_port, socks_auth=socks_auth)
-        
+
+
 def test_reverse_load_balancing(unused_ports):
-    with reverse_proxy(unused_ports) as (server_process, client_process, ws_port, socks_port):
+    with reverse_proxy(unused_ports) as (
+        server_process,
+        client_process,
+        ws_port,
+        socks_port,
+    ):
         assert_proxy_connection(socks_port)
-        
+
         # Start multiple client
-        client_processes = [subprocess.Popen(
-            [
-                "pywssocks",
-                "client",
-                "-t",
-                "test_token",
-                "-u",
-                f"ws://localhost:{ws_port}",
-                "-r",
-                "-d",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        ) for _ in range(3)]
-        
+        client_processes = [
+            subprocess.Popen(
+                [
+                    "pywssocks",
+                    "client",
+                    "-t",
+                    "test_token",
+                    "-u",
+                    f"ws://localhost:{ws_port}",
+                    "-r",
+                    "-d",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for _ in range(3)
+        ]
+
         for c in client_processes:
             assert wait_for_output(c, CLIENT_START_MSG, 5)
-        
+
         for _ in range(len(client_processes) + 1):
             assert_proxy_connection(socks_port)
-        
+
         count = 0
         for c in client_processes:
             if wait_for_output(c, "Attempting TCP connection", 1):
                 count += 1
         assert count == len(client_processes)
-        
+
+
 def test_reverse_wait_reconnect(unused_ports):
-    with reverse_proxy(unused_ports) as (server_process, client_process, ws_port, socks_port):
+    with reverse_proxy(unused_ports) as (
+        server_process,
+        client_process,
+        ws_port,
+        socks_port,
+    ):
         assert_proxy_connection(socks_port)
-        
+
         # Kill client and check for closed message
         client_process.terminate()
         client_process.wait()
         assert wait_for_output(server_process, "closed", timeout=5)
-        
+
         # Start a background thread to make proxy request
         proxy_success = threading.Event()
+
         def make_request():
             try:
                 assert_proxy_connection(socks_port)
                 proxy_success.set()
             except:
                 pass
-                
+
         request_thread = threading.Thread(target=make_request)
         request_thread.start()
-        
+
         # Wait a moment to ensure request has started but is waiting
         time.sleep(1)
         assert not proxy_success.is_set(), "Request should be waiting"
-        
+
         # Start new client
         new_client_process = subprocess.Popen(
             [
@@ -288,13 +320,15 @@ def test_reverse_wait_reconnect(unused_ports):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
+
         try:
             # Wait for new client to connect successfully
             assert wait_for_output(new_client_process, CLIENT_START_MSG)
-            
+
             # Wait for proxy request to complete
-            assert proxy_success.wait(timeout=5), "Request did not complete after client reconnection"
+            assert proxy_success.wait(
+                timeout=5
+            ), "Request did not complete after client reconnection"
         finally:
             new_client_process.terminate()
             new_client_process.wait()
