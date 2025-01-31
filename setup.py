@@ -24,8 +24,8 @@ setup(
         "click",
     ],
     entry_points={
-        'console_scripts': [
-            'pywssocks=pywssocks.cli:cli',
+        "console_scripts": [
+            "pywssocks=pywssocks.cli:cli",
         ],
     },
 )
