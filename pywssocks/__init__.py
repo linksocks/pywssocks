@@ -11,6 +11,7 @@ if _t.TYPE_CHECKING:
 MENU = {
     ".server": ["WSSocksServer"],
     ".client": ["WSSocksClient"],
+    ".common": ["PortPool"],
 }
 
 
