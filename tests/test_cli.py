@@ -10,7 +10,7 @@ import threading
 import socks
 import requests
 
-SERVER_START_MSG = "WebSocket server started"
+SERVER_START_MSG = "started on: ws://"
 CLIENT_START_MSG = "Authentication successful"
 
 def get_free_port(ipv6=False):
