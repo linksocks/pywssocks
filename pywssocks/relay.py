@@ -25,6 +25,41 @@ class Relay:
         # Map channel_id to associated UDP socket objects
         self._udp_channels: Dict[str, socket.socket] = {}
 
+    async def _refuse_socks_request(
+        self,
+        socks_socket: socket.socket,
+        reason: int = 0x03,
+    ):
+        """
+        Refuse SOCKS5 client request
+        
+        SOCKS5_REPLY = {
+            0x00: "succeeded",
+            0x01: "general SOCKS server failure",
+            0x02: "connection not allowed by ruleset",
+            0x03: "network unreachable",
+            0x04: "host unreachable",
+            0x05: "connection refused",
+            0x06: "TTL expired",
+            0x07: "command not supported",
+            0x08: "address type not supported",
+            0x09: "to 0xFF unassigned"
+        }
+        """
+        
+        loop = asyncio.get_event_loop()
+        data = await loop.sock_recv(socks_socket, 1024)
+        if not data or data[0] != 0x05:
+            return
+        await loop.sock_sendall(socks_socket, bytes([0x05, 0x00]))
+        data = await loop.sock_recv(socks_socket, 1024)
+        if not data or len(data) < 7:
+            return
+        await loop.sock_sendall(
+            socks_socket,
+            bytes([0x05, reason, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        )
+
     async def _handle_socks_request(
         self,
         websocket: Connection,
@@ -80,10 +115,10 @@ class Relay:
                 await websocket.ping()
             except ConnectionClosed:
                 logger.debug(f"WebSocket closed for connect_id: {connect_id}")
-                # Return connection failure response to SOCKS client (0x04 = Host unreachable)
+                # Return connection failure response to SOCKS client (0x03 = Network unreachable)
                 await loop.sock_sendall(
                     socks_socket,
-                    bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+                    bytes([0x05, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
                 )
                 return
 
@@ -145,6 +180,7 @@ class Relay:
                 # Ensure cleanup on timeout
                 response_future.cancel()
                 logger.error("Connection response timeout.")
+                # Return connection failure response to SOCKS client (0x04 = Host unreachable)
                 await loop.sock_sendall(
                     socks_socket,
                     bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
@@ -154,6 +190,7 @@ class Relay:
                 # Connection failed, return failure response to SOCKS client
                 error_msg = response_data.get("error", "Connection failed")
                 logger.error(f"Target connection failed: {error_msg}.")
+                # Return connection failure response to SOCKS client (0x04 = Host unreachable)
                 await loop.sock_sendall(
                     socks_socket,
                     bytes([0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
