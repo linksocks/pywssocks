@@ -3,8 +3,7 @@ import asyncio
 import socket
 import json
 import logging
-import uuid
-import struct
+from urllib.parse import urlparse, urlunparse
 
 import click
 from websockets.exceptions import ConnectionClosed
@@ -12,6 +11,7 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from pywssocks.common import init_logging
 from pywssocks.relay import Relay
+from pywssocks import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class WSSocksClient(Relay):
         """
         super().__init__(**kw)
 
-        self._ws_url: str = ws_url
+        self._ws_url: str = self.convert_ws_path(ws_url)
         self._token: str = token
         self._reverse: bool = reverse
 
@@ -51,6 +51,25 @@ class WSSocksClient(Relay):
 
         self._socks_server: Optional[socket.socket] = None
         self._websocket: Optional[ClientConnection] = None
+
+    def convert_ws_path(self, url: str) -> str:
+        # Process ws_url
+        parsed = urlparse(url)
+        # Convert http(s) to ws(s)
+        scheme = parsed.scheme
+        if scheme == "http":
+            scheme = "ws"
+        elif scheme == "https":
+            scheme = "wss"
+
+        # Add default path if not present or only has trailing slash
+        path = parsed.path
+        if not path or path == "/":
+            path = "/socket"
+
+        return urlunparse(
+            (scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment)
+        )
 
     async def _message_dispatcher(self, websocket: ClientConnection) -> None:
         """Global WebSocket message dispatcher"""
@@ -166,8 +185,6 @@ class WSSocksClient(Relay):
 
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
-        finally:
-            await self._cleanup_connections()
 
     async def _start_reverse(self) -> None:
         """Connect to WebSocket server in reverse proxy mode"""
@@ -197,33 +214,26 @@ class WSSocksClient(Relay):
                             asyncio.create_task(self._heartbeat_handler(websocket)),
                         ]
 
-                        try:
-                            # Wait for first task to complete (may be due to error or connection close)
-                            done, pending = await asyncio.wait(
-                                tasks, return_when=asyncio.FIRST_COMPLETED
-                            )
+                        # Wait for first task to complete (may be due to error or connection close)
+                        done, pending = await asyncio.wait(
+                            tasks, return_when=asyncio.FIRST_COMPLETED
+                        )
 
-                            # Cancel other running tasks
-                            for task in pending:
-                                task.cancel()
+                        # Cancel other running tasks
+                        for task in pending:
+                            task.cancel()
 
-                            # Wait for cancelled tasks to complete
-                            await asyncio.gather(*pending, return_exceptions=True)
+                        # Wait for cancelled tasks to complete
+                        await asyncio.gather(*pending, return_exceptions=True)
 
-                            # Check if any tasks threw exceptions
-                            for task in done:
-                                try:
-                                    task.result()
-                                except Exception as e:
-                                    logger.error(
-                                        f"Task failed with error: {e.__class__.__name__}: {e}."
-                                    )
-
-                            logger.warning("Connection lost, cleaning up...")
-
-                        finally:
-                            # Clean up existing connections
-                            await self._cleanup_connections()
+                        # Check if any tasks threw exceptions
+                        for task in done:
+                            try:
+                                task.result()
+                            except Exception as e:
+                                logger.error(
+                                    f"Task failed with error: {e.__class__.__name__}: {e}."
+                                )
 
                 except ConnectionClosed:
                     logger.error("WebSocket connection closed. Retrying in 5 seconds...")
@@ -236,7 +246,6 @@ class WSSocksClient(Relay):
 
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
-            await self._cleanup_connections()
             return
 
     async def _heartbeat_handler(self, websocket: ClientConnection) -> None:
@@ -268,32 +277,9 @@ class WSSocksClient(Relay):
             # Ensure logging when heartbeat handler exits
             logger.info("Heartbeat handler stopped.")
 
-    async def _cleanup_connections(self):
-        """Clean up all existing connections"""
-
-        # Clean up TCP connections
-        for channel_id, sock in self._channels.items():
-            try:
-                sock.close()
-            except:
-                pass
-        self._channels.clear()
-
-        # Clean up UDP connections
-        for channel_id, sock in self._udp_channels.items():
-            try:
-                sock.close()
-            except:
-                pass
-        self._udp_channels.clear()
-
-        # Clean up message queues
-        self._message_queues.clear()
-
-        logger.info("Cleaned up all existing connections.")
-
     async def start(self):
         """Start client"""
+        logger.info(f"Pywssocks Client {__version__} is connecting: {self._ws_url}")
         if self._reverse:
             await self._start_reverse()
         else:

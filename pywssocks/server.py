@@ -1,19 +1,20 @@
+from http import HTTPStatus
 from typing import Optional, Tuple, Union
 import logging
 import asyncio
 import json
-import struct
 import socket
 import random
 import string
-import uuid
 
+from websockets.http11 import Request
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.server import ServerConnection, serve
 import click
 
 from pywssocks.common import PortPool, init_logging
 from pywssocks.relay import Relay
+from pywssocks import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -361,12 +362,28 @@ class WSSocksServer(Relay):
                 logger.error(f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}.")
                 await asyncio.sleep(0.1)
 
+    async def _process_request(self, connection: ServerConnection, request: Request):
+        """Process HTTP requests before WebSocket handshake"""
+        
+        if request.path == "/socket":
+            # Return None to continue WebSocket handshake for WebSocket path
+            return None
+        elif request.path == "/":
+            return connection.respond(HTTPStatus.OK, "Pywssocks \n")
+        else:
+            return connection.respond(HTTPStatus.NOT_FOUND, "404 Not Found\n")
+
     async def start(self):
         """Start WebSocket server"""
 
-        async with serve(self._handle_websocket, self._ws_host, self._ws_port):
-            logger.info(f"WebSocket server started on: ws://{self._ws_host}:{self._ws_port}")
-            logger.info(f"Waiting for a client to connect.")
+        async with serve(
+            self._handle_websocket,
+            self._ws_host,
+            self._ws_port,
+            process_request=self._process_request,
+        ):
+            logger.info(f"Pywssocks Server {__version__} started on: ws://{self._ws_host}:{self._ws_port}")
+            logger.info(f"Waiting for clients to connect.")
             await asyncio.Future()  # Keep server running
 
 
@@ -409,7 +426,7 @@ def _server_cli(
     """Start SOCKS5 over WebSocket proxy server"""
 
     init_logging(level=logging.DEBUG if debug else logging.INFO)
-
+    
     # Create server instance
     server = WSSocksServer(
         ws_host=ws_host,
