@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pywssocks"
+dynamic = ["version"]
+authors = [
+    { name = "jackzzs", email = "jackzzs@outlook.com" },
+]
+description = "A forward and reverse socks over websocket server and client implementation in Python."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "websockets>=13.1",
+    "click",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-xdist",
+    "requests[socks]",
+    "bump2version",
+]
+api = [
+    "sanic",
+]
+
+[project.urls]
+Homepage = "https://github.com/zetxtech/pywssocks"
+
+[project.scripts]
+pywssocks = "pywssocks.cli:cli"
+
+[tool.setuptools.dynamic]
+version = {attr = "pywssocks.__version__"} 
