@@ -6,6 +6,8 @@ Pywssocks is a SOCKS proxy implementation over WebSocket protocol.
 
 This tool allows you to securely expose SOCKS proxy services under Web Application Firewall (WAF) protection (forward socks), or enable clients to connect and serve as SOCKS proxy servers when they don't have public network access (reverse socks).
 
+![Main Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/abstract.svg)
+
 ## Features
 
 1. Both client and server modes, supporting command-line usage or library integration.
