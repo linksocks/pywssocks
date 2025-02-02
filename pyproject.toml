@@ -27,6 +27,7 @@ dev = [
     "pytest-xdist",
     "requests[socks]",
     "bump2version",
+    "debugpy",
 ]
 api = [
     "sanic",
