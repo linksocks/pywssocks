@@ -102,6 +102,10 @@ class WSSocksClient(Relay):
 
     async def _run_socks_server(self) -> None:
         """Run local SOCKS5 server"""
+        
+        if self._socks_server:
+            return
+        
         try:
             socks_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             socks_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -121,7 +125,7 @@ class WSSocksClient(Relay):
                 except Exception as e:
                     logger.error(f"Error accepting SOCKS connection: {e}")
                     await asyncio.sleep(0.1)
-
+        
         except Exception as e:
             logger.error(f"SOCKS server error: {e}")
         finally:
@@ -131,18 +135,27 @@ class WSSocksClient(Relay):
     async def _handle_socks_request(self, socks_socket: socket.socket) -> None:
         """Handle SOCKS5 client request"""
 
-        if not self._websocket:
-            logger.error("Fail to handle socks request without valid Websocket connection.")
+        loop = asyncio.get_event_loop()
+        wait_start = loop.time()
+        while loop.time() - wait_start < 10:
+            if self._websocket:
+                await super()._handle_socks_request(
+                    self._websocket, socks_socket, self._socks_username, self._socks_password
+                )
+                break
+            await asyncio.sleep(0.1)
+        else:
+            logger.debug(
+                f"No valid websockets connection after waiting 10s, refusing socks request."
+            )
+            await self._refuse_socks_request(socks_socket)
             return
-
-        return await super()._handle_socks_request(
-            self._websocket, socks_socket, self._socks_username, self._socks_password
-        )
 
     async def _start_forward(self) -> None:
         """Connect to WebSocket server in forward proxy mode"""
 
         try:
+            asyncio.create_task(self._run_socks_server())
             while True:
                 try:
                     async with connect(self._ws_url) as websocket:
@@ -163,16 +176,18 @@ class WSSocksClient(Relay):
                         tasks = [
                             asyncio.create_task(self._message_dispatcher(websocket)),
                             asyncio.create_task(self._heartbeat_handler(websocket)),
-                            asyncio.create_task(self._run_socks_server()),
                         ]
 
-                        done, pending = await asyncio.wait(
-                            tasks, return_when=asyncio.FIRST_COMPLETED
-                        )
-
-                        for task in pending:
-                            task.cancel()
-
+                        try:
+                            done, pending = await asyncio.wait(
+                                tasks, return_when=asyncio.FIRST_COMPLETED
+                            )
+                            for task in pending:
+                                task.cancel()
+                        finally:
+                            for task in tasks:
+                                if not task.done():
+                                    task.cancel()
                         await asyncio.gather(*pending, return_exceptions=True)
                 except ConnectionClosed:
                     logger.error("WebSocket connection closed. Retrying in 5 seconds...")
@@ -182,7 +197,8 @@ class WSSocksClient(Relay):
                         f"Connection error: {e.__class__.__name__}: {e}. Retrying in 5 seconds..."
                     )
                     await asyncio.sleep(5)
-
+                finally:
+                    self._websocket = None
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
 
