@@ -10,37 +10,41 @@ test_logger = logging.getLogger(__name__)
 def test_import():
     from pywssocks import WSSocksClient, WSSocksServer, PortPool
 
-
 def test_forward_server():
-    from pywssocks import WSSocksServer
+    async def _test_forward_server():
+        from pywssocks import WSSocksServer
 
-    ws_port = get_free_port()
+        ws_port = get_free_port()
 
-    server = WSSocksServer(
-        ws_host="0.0.0.0",
-        ws_port=ws_port,
-    )
-    token = server.add_forward_token()
-    print(f"Token: {token}")
-    with pytest.raises(asyncio.TimeoutError):
-        asyncio.run(asyncio.wait_for(server.serve(), 5))
-
+        server = WSSocksServer(
+            ws_host="0.0.0.0",
+            ws_port=ws_port,
+        )
+        token = server.add_forward_token()
+        print(f"Token: {token}")
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(server.serve(), 5)
+        
+    asyncio.run(_test_forward_server())
 
 def test_forward_client():
-    from pywssocks import WSSocksClient
+    async def _test_forward_client():
+        from pywssocks import WSSocksClient
 
-    socks_port = get_free_port()
+        socks_port = get_free_port()
 
-    client = WSSocksClient(
-        token="<token>",
-        ws_url="ws://localhost:8765",
-        socks_host="127.0.0.1",
-        socks_port=socks_port,
-    )
-    try:
-        asyncio.run(asyncio.wait_for(client.connect(), 5))
-    except asyncio.TimeoutError:
-        pass
+        client = WSSocksClient(
+            token="<token>",
+            ws_url="ws://localhost:8765",
+            socks_host="127.0.0.1",
+            socks_port=socks_port,
+        )
+        try:
+            await asyncio.wait_for(client.connect(), 5)
+        except asyncio.TimeoutError:
+            pass
+    
+    asyncio.run(_test_forward_client())
 
 def test_forward_lib(caplog, website):
     async def _test_forward_lib():
@@ -64,35 +68,41 @@ def test_forward_lib(caplog, website):
     
     return asyncio.run(_test_forward_lib())
 
+
 def test_reverse_server():
-    from pywssocks import WSSocksServer
+    async def _test_reverse_server():
+        from pywssocks import WSSocksServer
 
-    ws_port = get_free_port()
+        ws_port = get_free_port()
 
-    server = WSSocksServer(
-        ws_host="0.0.0.0",
-        ws_port=ws_port,
-        socks_host="127.0.0.1",
-        socks_port_pool=range(1024, 10240),
-    )
-    token, port = server.add_reverse_token()
-    print(f"Token: {token}\nPort: {port}")
-    with pytest.raises(asyncio.TimeoutError):
-        asyncio.run(asyncio.wait_for(server.serve(), 5))
-
+        server = WSSocksServer(
+            ws_host="0.0.0.0",
+            ws_port=ws_port,
+            socks_host="127.0.0.1",
+            socks_port_pool=range(1024, 10240),
+        )
+        token, port = server.add_reverse_token()
+        print(f"Token: {token}\nPort: {port}")
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(server.serve(), 5)
+    
+    asyncio.run(_test_reverse_server())
 
 def test_reverse_client():
-    from pywssocks import WSSocksClient
+    async def _test_reverse_client():
+        from pywssocks import WSSocksClient
 
-    client = WSSocksClient(
-        token="<token>",
-        ws_url="ws://localhost:8765",
-        reverse=True,
-    )
-    try:
-        asyncio.run(asyncio.wait_for(client.connect(), 5))
-    except asyncio.TimeoutError:
-        pass
+        client = WSSocksClient(
+            token="<token>",
+            ws_url="ws://localhost:8765",
+            reverse=True,
+        )
+        try:
+            await asyncio.wait_for(client.connect(), 5)
+        except asyncio.TimeoutError:
+            pass
+    
+    return asyncio.run(_test_reverse_client())
 
 def test_reverse_lib(caplog, website):
     async def _test_reverse_lib():
