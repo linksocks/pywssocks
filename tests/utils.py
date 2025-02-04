@@ -2,12 +2,6 @@ import logging
 import socket
 from typing import Optional, Tuple
 
-import socks
-import requests
-from aiohttp import TCPConnector, ClientSession, ClientTimeout
-from aiohttp_socks import ProxyConnector, ProxyType
-
-
 def get_free_port(ipv6=False):
     """Get a free port for either IPv4 or IPv6"""
 
@@ -23,6 +17,8 @@ def assert_web_connection(
     website, socks_port: Optional[int] = None, socks_auth: Optional[Tuple[str, str]] = None
 ):
     """Helper function to test connection to the local http server with or without proxy"""
+    import requests
+    
     session = requests.Session()
     session.trust_env = False
     if socks_port:
@@ -50,26 +46,19 @@ async def async_assert_web_connection(
     website, socks_port: Optional[int] = None, socks_auth: Optional[Tuple[str, str]] = None
 ):
     """Helper function to test async connection to the local http server with or without proxy"""
-    if socks_port:
-        if socks_auth:
-            username, password = socks_auth
-        else:
-            username = password = None
-        connector = ProxyConnector(
-            proxy_type=ProxyType.SOCKS5,
-            host="127.0.0.1",
-            port=socks_port,
-            rdns=True,
-            username=username,
-            password=password,
-        )
-    else:
-        connector = TCPConnector()
+    import httpx
 
-    async with ClientSession(connector=connector, timeout=ClientTimeout(5)) as session:
+    if socks_port:
+        proxies = f"socks5://127.0.0.1:{socks_port}"
+        if socks_auth:
+            proxies = f"socks5://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
+    else:
+        proxies = None
+
+    async with httpx.AsyncClient(proxies=proxies, timeout=5.0) as client:
         try:
-            async with session.get(website) as response:
-                assert response.status == 204
+            response = await client.get(website)
+            assert response.status_code == 204
         except Exception as e:
             raise RuntimeError(f"Web connection test FAILED: {e}") from None
 
@@ -78,6 +67,8 @@ def assert_udp_connection(udp_server, socks_port=None, socks_auth=None):
     """Helper function to connect to the local udp echo server with or without proxy"""
     host, port = udp_server.split(":")
     port = int(port)
+    
+    import socks
 
     sock = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
     if socks_port:

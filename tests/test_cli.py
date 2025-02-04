@@ -416,6 +416,8 @@ def test_http_access():
         ws_port,
         socks_port,
     ):
+        import requests
+        
         session = requests.Session()
         session.trust_env = False
         response = session.get(
