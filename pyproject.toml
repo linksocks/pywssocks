@@ -25,12 +25,12 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-xdist",
+    "pytest-asyncio",
+    "aiohttp",
+    "aiohttp_socks",
     "requests[socks]",
     "bump2version",
     "debugpy",
-]
-api = [
-    "sanic",
 ]
 
 [project.urls]
@@ -41,3 +41,9 @@ pywssocks = "pywssocks.cli:cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "pywssocks.__version__"} 
+
+[tool.setuptools.packages.find]
+namespaces = false
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
