@@ -49,13 +49,13 @@ async def async_assert_web_connection(
     import httpx
 
     if socks_port:
-        proxies = f"socks5://127.0.0.1:{socks_port}"
+        proxy_url = f"socks5://127.0.0.1:{socks_port}"
         if socks_auth:
-            proxies = f"socks5://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
+            proxy_url = f"socks5://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
     else:
-        proxies = None
+        proxy_url = None
 
-    async with httpx.AsyncClient(proxies=proxies, timeout=5.0) as client:
+    async with httpx.AsyncClient(proxy=proxy_url, timeout=5.0) as client:
         try:
             response = await client.get(website)
             assert response.status_code == 204
