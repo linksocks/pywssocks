@@ -13,10 +13,11 @@ CLIENT_START_MSG = "Authentication successful"
 
 os.environ["PYTHONUNBUFFERED"] = "1"
 
+
 @contextlib.contextmanager
 def forward_proxy(socks_auth=None):
     """Create forward proxy server and client processes with optional SOCKS auth"""
-    
+
     try:
         ws_port = get_free_port()
         socks_port = get_free_port()
@@ -48,7 +49,7 @@ def forward_proxy(socks_auth=None):
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        
+
         assert wait_for_output(server_process, SERVER_START_MSG, 10)
         assert wait_for_output(client_process, CLIENT_START_MSG, 10)
 
@@ -99,7 +100,7 @@ def reverse_proxy(socks_auth=None):
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        
+
         time.sleep(1)
 
         client_process = subprocess.Popen(
@@ -117,7 +118,7 @@ def reverse_proxy(socks_auth=None):
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        
+
         assert wait_for_output(server_process, SERVER_START_MSG, 10)
         assert wait_for_output(client_process, CLIENT_START_MSG, 10)
 
@@ -154,7 +155,9 @@ def wait_for_output(process, text, timeout=6):
         if text.lower() in line.lower():
             return True
         if process.poll() is not None:
-            raise RuntimeError(f"process terminated unexpectedly while waiting for '{text}'")
+            raise RuntimeError(
+                f"process terminated unexpectedly while waiting for '{text}'"
+            )
     return False
 
 
@@ -162,7 +165,9 @@ def test_website(website):
     assert_web_connection(website)
 
 
-@pytest.mark.skipif(not has_ipv6_support(), reason="IPv6 is not supported on this system")
+@pytest.mark.skipif(
+    not has_ipv6_support(), reason="IPv6 is not supported on this system"
+)
 def test_website_ipv6(website_v6):
     assert_web_connection(website_v6)
 
@@ -367,7 +372,9 @@ def test_reverse_wait_reconnect(website):
             request_thread.join(timeout=1)
 
 
-@pytest.mark.skipif(not has_ipv6_support(), reason="IPv6 is not supported on this system")
+@pytest.mark.skipif(
+    not has_ipv6_support(), reason="IPv6 is not supported on this system"
+)
 def test_forward_ipv6(website_v6):
     with forward_proxy() as (
         server_process,
@@ -378,7 +385,9 @@ def test_forward_ipv6(website_v6):
         assert_web_connection(website_v6, socks_port)
 
 
-@pytest.mark.skipif(not has_ipv6_support(), reason="IPv6 is not supported on this system")
+@pytest.mark.skipif(
+    not has_ipv6_support(), reason="IPv6 is not supported on this system"
+)
 def test_reverse_ipv6(website_v6):
     with reverse_proxy() as (
         server_process,
@@ -417,7 +426,7 @@ def test_http_access():
         socks_port,
     ):
         import requests
-        
+
         session = requests.Session()
         session.trust_env = False
         response = session.get(

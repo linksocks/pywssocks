@@ -4,15 +4,21 @@ import logging
 
 import click
 
+
 @click.group()
 def cli():
     """SOCKS5 over WebSocket proxy tool"""
     pass
 
+
 @click.command()
 @click.option("--token", "-t", required=True, help="Authentication token")
-@click.option("--url", "-u", default="ws://localhost:8765", help="WebSocket server address")
-@click.option("--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy")
+@click.option(
+    "--url", "-u", default="ws://localhost:8765", help="WebSocket server address"
+)
+@click.option(
+    "--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy"
+)
 @click.option(
     "--socks-host",
     "-h",
@@ -28,10 +34,18 @@ def cli():
 @click.option("--socks-username", "-n", help="SOCKS5 authentication username")
 @click.option("--socks-password", "-w", help="SOCKS5 authentication password")
 @click.option(
-    "--socks-no-wait", "-i", is_flag=True, default=False, help="Start the SOCKS server immediately"
+    "--socks-no-wait",
+    "-i",
+    is_flag=True,
+    default=False,
+    help="Start the SOCKS server immediately",
 )
 @click.option(
-    "--no-reconnect", "-R", is_flag=True, default=False, help="Stop when the server disconnects"
+    "--no-reconnect",
+    "-R",
+    is_flag=True,
+    default=False,
+    help="Stop when the server disconnects",
 )
 @click.option("--debug", "-d", is_flag=True, default=False, help="Show debug logs")
 def _client_cli(
@@ -47,7 +61,7 @@ def _client_cli(
     debug: bool,
 ):
     """Start SOCKS5 over WebSocket proxy client"""
-    
+
     from pywssocks.client import WSSocksClient
     from pywssocks.common import init_logging
 
@@ -69,7 +83,9 @@ def _client_cli(
 
 
 @click.command()
-@click.option("--ws-host", "-H", default="0.0.0.0", help="WebSocket server listen address")
+@click.option(
+    "--ws-host", "-H", default="0.0.0.0", help="WebSocket server listen address"
+)
 @click.option("--ws-port", "-P", default=8765, help="WebSocket server listen port")
 @click.option(
     "--token",
@@ -77,7 +93,9 @@ def _client_cli(
     default=None,
     help="Specify auth token, auto-generate if not provided",
 )
-@click.option("--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy")
+@click.option(
+    "--reverse", "-r", is_flag=True, default=False, help="Use reverse socks5 proxy"
+)
 @click.option(
     "--socks-host",
     "-h",
@@ -90,9 +108,19 @@ def _client_cli(
     default=1080,
     help="SOCKS5 server listen port for reverse proxy, auto-generate if not provided",
 )
-@click.option("--socks-username", "-n", default=None, help="SOCKS5 username for authentication")
-@click.option("--socks-password", "-w", default=None, help="SOCKS5 password for authentication")
-@click.option("--socks-nowait", "-i", is_flag=True, default=False, help="Start the SOCKS server immediately")
+@click.option(
+    "--socks-username", "-n", default=None, help="SOCKS5 username for authentication"
+)
+@click.option(
+    "--socks-password", "-w", default=None, help="SOCKS5 password for authentication"
+)
+@click.option(
+    "--socks-nowait",
+    "-i",
+    is_flag=True,
+    default=False,
+    help="Start the SOCKS server immediately",
+)
 @click.option("--debug", "-d", is_flag=True, default=False, help="Show debug logs")
 def _server_cli(
     ws_host: str,
@@ -123,10 +151,14 @@ def _server_cli(
 
     # Add token based on mode
     if reverse:
-        use_token, port = server.add_reverse_token(token, socks_port, socks_username, socks_password)
+        use_token, port = server.add_reverse_token(
+            token, socks_port, socks_username, socks_password
+        )
         if port:
             server._log.info(f"Configuration:")
-            server._log.info(f"  Mode: reverse proxy (SOCKS5 on server -> client -> network)")
+            server._log.info(
+                f"  Mode: reverse proxy (SOCKS5 on server -> client -> network)"
+            )
             server._log.info(f"  Token: {use_token}")
             server._log.info(f"  SOCKS5 port: {port}")
             if socks_username and socks_password:
@@ -137,11 +169,14 @@ def _server_cli(
     else:
         use_token = server.add_forward_token(token)
         server._log.info(f"Configuration:")
-        server._log.info(f"  Mode: forward proxy (SOCKS5 on client -> server -> network)")
+        server._log.info(
+            f"  Mode: forward proxy (SOCKS5 on client -> server -> network)"
+        )
         server._log.info(f"  Token: {use_token}")
 
     # Start server
     asyncio.run(server.serve())
+
 
 cli.add_command(_client_cli, name="client")
 cli.add_command(_server_cli, name="server")

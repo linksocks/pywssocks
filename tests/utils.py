@@ -2,6 +2,7 @@ import logging
 import socket
 from typing import Optional, Tuple
 
+
 def get_free_port(ipv6=False):
     """Get a free port for either IPv4 or IPv6"""
 
@@ -14,17 +15,21 @@ def get_free_port(ipv6=False):
 
 
 def assert_web_connection(
-    website, socks_port: Optional[int] = None, socks_auth: Optional[Tuple[str, str]] = None
+    website,
+    socks_port: Optional[int] = None,
+    socks_auth: Optional[Tuple[str, str]] = None,
 ):
     """Helper function to test connection to the local http server with or without proxy"""
     import requests
-    
+
     session = requests.Session()
     session.trust_env = False
     if socks_port:
         proxy_url = f"socks5h://127.0.0.1:{socks_port}"
         if socks_auth:
-            proxy_url = f"socks5h://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
+            proxy_url = (
+                f"socks5h://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
+            )
         proxies = {
             "http": proxy_url,
             "https": proxy_url,
@@ -43,7 +48,9 @@ def assert_web_connection(
 
 
 async def async_assert_web_connection(
-    website, socks_port: Optional[int] = None, socks_auth: Optional[Tuple[str, str]] = None
+    website,
+    socks_port: Optional[int] = None,
+    socks_auth: Optional[Tuple[str, str]] = None,
 ):
     """Helper function to test async connection to the local http server with or without proxy"""
     import httpx
@@ -51,7 +58,9 @@ async def async_assert_web_connection(
     if socks_port:
         proxy_url = f"socks5://127.0.0.1:{socks_port}"
         if socks_auth:
-            proxy_url = f"socks5://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
+            proxy_url = (
+                f"socks5://{socks_auth[0]}:{socks_auth[1]}@127.0.0.1:{socks_port}"
+            )
     else:
         proxy_url = None
 
@@ -67,7 +76,7 @@ def assert_udp_connection(udp_server, socks_port=None, socks_auth=None):
     """Helper function to connect to the local udp echo server with or without proxy"""
     host, port = udp_server.split(":")
     port = int(port)
-    
+
     import socks
 
     sock = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -97,7 +106,7 @@ def assert_udp_connection(udp_server, socks_port=None, socks_auth=None):
                     success_count += 1
             except socket.timeout:
                 continue
-        
+
         if success_count < total_attempts / 2:
             raise AssertionError(
                 f"UDP connection test failed: only {success_count}/{total_attempts} "

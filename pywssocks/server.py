@@ -21,13 +21,14 @@ _default_logger = logging.getLogger(__name__)
 class WSSocksServer(Relay):
     """
     A SOCKS5 over WebSocket protocol server.
-    
+
     In forward proxy mode, it will receive WebSocket requests from clients, access the network as
     requested, and return the results to the client.
-    
+
     In reverse proxy mode, it will receive SOCKS5 requests and send them to the connected client
     via WebSocket for parsing.
     """
+
     def __init__(
         self,
         ws_host: str = "0.0.0.0",
@@ -65,9 +66,9 @@ class WSSocksServer(Relay):
             self._socks_port_pool = PortPool(socks_port_pool)
 
         self._socks_wait_client = socks_wait_client
-        
+
         self._pending_tokens = []
-        
+
         # Store all connected reverse proxy clients, {client_id: websocket}
         self._clients: dict[int, ServerConnection] = {}
 
@@ -156,7 +157,7 @@ class WSSocksServer(Relay):
         self._forward_tokens.add(token)
         self._log.info("New forward proxy token added.")
         return token
-    
+
     def remove_token(self, token: str) -> bool:
         """Remove a token and disconnect all its clients
 
@@ -233,7 +234,7 @@ class WSSocksServer(Relay):
 
     async def wait_ready(self, timeout: Optional[float] = None) -> asyncio.Task:
         """Start the client and connect to the server within the specified timeout, then returns the Task."""
-        
+
         task = asyncio.create_task(self.serve())
         if timeout:
             await asyncio.wait_for(self.ready.wait(), timeout=timeout)
@@ -244,22 +245,22 @@ class WSSocksServer(Relay):
     async def serve(self):
         """
         Start the server and wait clients to connect.
-        
+
         This function will execute until the server is terminated.
         """
 
         self._loop = asyncio.get_running_loop()
-        
+
         for token in self._pending_tokens:
             await self._handle_pending_token(token)
         self._pending_tokens = []
-            
+
         async with serve(
             self._handle_websocket,
             self._ws_host,
             self._ws_port,
             process_request=self._process_request,
-            logger=self._log.getChild('ws')
+            logger=self._log.getChild("ws"),
         ):
             self._log.info(
                 f"Pywssocks Server {__version__} started on: "
@@ -280,21 +281,29 @@ class WSSocksServer(Relay):
             clients = self._token_clients[token]
             if not clients:
                 return None
-            
+
             current_index = self._token_indexes.get(token, 0)
-            self._token_indexes[token] = current_index = (current_index + 1) % len(clients)
-        
-        self._log.debug(f'Handling request using client index for this client: {current_index}')
+            self._token_indexes[token] = current_index = (current_index + 1) % len(
+                clients
+            )
+
+        self._log.debug(
+            f"Handling request using client index for this client: {current_index}"
+        )
         try:
             return clients[current_index][1]
         except:
             return clients[0][1]
 
-    async def _handle_socks_request(self, socks_socket: socket.socket, token: str) -> None:
+    async def _handle_socks_request(
+        self, socks_socket: socket.socket, token: str
+    ) -> None:
         # Use round-robin to get websocket connection
         websocket = await self._get_next_websocket(token)
         if not websocket:
-            self._log.warning(f"No available client for SOCKS5 port {self._tokens[token]}.")
+            self._log.warning(
+                f"No available client for SOCKS5 port {self._tokens[token]}."
+            )
             socks_socket.close()
             return
         auth = self._socks_auth.get(token, None)
@@ -305,12 +314,16 @@ class WSSocksServer(Relay):
         return await super()._handle_socks_request(
             websocket, socks_socket, socks_username, socks_password
         )
-        
-    async def _handle_pending_token(self, token: str, ready_event: Optional[asyncio.Event] = None):
+
+    async def _handle_pending_token(
+        self, token: str, ready_event: Optional[asyncio.Event] = None
+    ):
         if not self._socks_wait_client:
             socks_port = self._tokens.get(token, None)
             if socks_port and (socks_port not in self._socks_servers):
-                return asyncio.create_task(self._run_socks_server(token, socks_port, ready_event=ready_event))
+                return asyncio.create_task(
+                    self._run_socks_server(token, socks_port, ready_event=ready_event)
+                )
 
     async def _handle_websocket(self, websocket: ServerConnection) -> None:
         """Handle WebSocket connection"""
@@ -333,14 +346,16 @@ class WSSocksServer(Relay):
                 socks_port = self._tokens[token]
                 client_id = id(websocket)
                 lock = self._token_locks[token]
-                
+
                 async with lock:
                     if token not in self._token_clients:
                         self._token_clients[token] = []
                     self._token_clients[token].append((client_id, websocket))
                 self._clients[client_id] = websocket
 
-                await websocket.send(json.dumps({"type": "auth_response", "success": True}))
+                await websocket.send(
+                    json.dumps({"type": "auth_response", "success": True})
+                )
                 self._log.info(f"Reverse client {client_id} authenticated")
 
                 # Ensure SOCKS server is running
@@ -351,16 +366,24 @@ class WSSocksServer(Relay):
                 client_id = id(websocket)
                 self._forward_clients[client_id] = websocket
 
-                await websocket.send(json.dumps({"type": "auth_response", "success": True}))
+                await websocket.send(
+                    json.dumps({"type": "auth_response", "success": True})
+                )
                 self._log.info(f"Forward client {client_id} authenticated")
 
             else:
-                await websocket.send(json.dumps({"type": "auth_response", "success": False}))
+                await websocket.send(
+                    json.dumps({"type": "auth_response", "success": False})
+                )
                 await websocket.close(1008, "Invalid token")
                 return
 
-            receiver_task = asyncio.create_task(self._message_dispatcher(websocket, client_id))
-            heartbeat_task = asyncio.create_task(self._ws_heartbeat(websocket, client_id))
+            receiver_task = asyncio.create_task(
+                self._message_dispatcher(websocket, client_id)
+            )
+            heartbeat_task = asyncio.create_task(
+                self._ws_heartbeat(websocket, client_id)
+            )
 
             done, pending = await asyncio.wait(
                 [receiver_task, heartbeat_task], return_when=asyncio.FIRST_COMPLETED
@@ -378,7 +401,9 @@ class WSSocksServer(Relay):
             self._log.info(f"Client {client_id} disconnected.")
             await self._cleanup_connection(client_id, token)
 
-    async def _cleanup_connection(self, client_id: Optional[int], token: Optional[str]) -> None:
+    async def _cleanup_connection(
+        self, client_id: Optional[int], token: Optional[str]
+    ) -> None:
         """Clean up resources without closing SOCKS server"""
 
         if not client_id or not token:
@@ -402,7 +427,9 @@ class WSSocksServer(Relay):
 
         # Clean up related message queues
         queues_to_remove = [
-            queue_id for queue_id in self._message_queues if queue_id.startswith(f"{client_id}_")
+            queue_id
+            for queue_id in self._message_queues
+            if queue_id.startswith(f"{client_id}_")
         ]
         for queue_id in queues_to_remove:
             del self._message_queues[queue_id]
@@ -418,7 +445,9 @@ class WSSocksServer(Relay):
                     await websocket.ping()
                     await asyncio.sleep(30)
                 except ConnectionClosed:
-                    self._log.info(f"Heartbeat detected disconnection for client {client_id}.")
+                    self._log.info(
+                        f"Heartbeat detected disconnection for client {client_id}."
+                    )
                     break
                 except Exception as e:
                     self._log.error(f"Heartbeat error for client {client_id}: {e}")
@@ -430,13 +459,17 @@ class WSSocksServer(Relay):
             except:
                 pass
 
-    async def _message_dispatcher(self, websocket: ServerConnection, client_id: int) -> None:
+    async def _message_dispatcher(
+        self, websocket: ServerConnection, client_id: int
+    ) -> None:
         """WebSocket message receiver distributing messages to different message queues"""
 
         try:
             while True:
                 try:
-                    msg = await asyncio.wait_for(websocket.recv(), timeout=60)  # 60 seconds timeout
+                    msg = await asyncio.wait_for(
+                        websocket.recv(), timeout=60
+                    )  # 60 seconds timeout
                     data = json.loads(msg)
 
                     if data["type"] == "data":
@@ -445,15 +478,21 @@ class WSSocksServer(Relay):
                         if channel_id in self._message_queues:
                             await self._message_queues[channel_id].put(data)
                         else:
-                            self._log.debug(f"Received data for unknown channel: {channel_id}")
+                            self._log.debug(
+                                f"Received data for unknown channel: {channel_id}"
+                            )
                     elif data["type"] == "connect_response":
                         self._log.debug(f"Received network connection response: {data}")
                         connect_id = data["connect_id"]
                         if connect_id in self._message_queues:
                             await self._message_queues[connect_id].put(data)
-                    elif data["type"] == "connect" and client_id in self._forward_clients:
+                    elif (
+                        data["type"] == "connect" and client_id in self._forward_clients
+                    ):
                         self._log.debug(f"Received network connection request: {data}")
-                        asyncio.create_task(self._handle_network_connection(websocket, data))
+                        asyncio.create_task(
+                            self._handle_network_connection(websocket, data)
+                        )
                 except asyncio.TimeoutError:
                     # If 60 seconds pass without receiving messages, check if connection is still alive
                     try:
@@ -469,7 +508,9 @@ class WSSocksServer(Relay):
                 f"WebSocket receive error for client {client_id}: {e.__class__.__name__}: {e}."
             )
 
-    async def _run_socks_server(self, token: str, socks_port: int, ready_event: Optional[asyncio.Event] = None) -> None:
+    async def _run_socks_server(
+        self, token: str, socks_port: int, ready_event: Optional[asyncio.Event] = None
+    ) -> None:
         """Modified SOCKS server startup function"""
 
         # If server is already running, return immediately
@@ -496,13 +537,20 @@ class WSSocksServer(Relay):
 
                     # Check if token has valid clients
                     if token in self._token_clients and self._token_clients[token]:
-                        asyncio.create_task(self._handle_socks_request(client_sock, token))
+                        asyncio.create_task(
+                            self._handle_socks_request(client_sock, token)
+                        )
                     else:
                         # Wait up to 10 seconds to see if any clients connect
                         wait_start = loop.time()
                         while loop.time() - wait_start < 10:
-                            if token in self._token_clients and self._token_clients[token]:
-                                asyncio.create_task(self._handle_socks_request(client_sock, token))
+                            if (
+                                token in self._token_clients
+                                and self._token_clients[token]
+                            ):
+                                asyncio.create_task(
+                                    self._handle_socks_request(client_sock, token)
+                                )
                                 break
                             await asyncio.sleep(0.1)
                         else:
@@ -513,7 +561,9 @@ class WSSocksServer(Relay):
                 except BlockingIOError:
                     await asyncio.sleep(0.1)
                 except Exception as e:
-                    self._log.error(f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}.")
+                    self._log.error(
+                        f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}."
+                    )
                     await asyncio.sleep(0.1)
         except Exception as e:
             self._log.error(f"SOCKS server error: {e}")
