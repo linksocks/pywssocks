@@ -25,7 +25,7 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-xdist",
-    "httpx",
+    "httpx[socks]",
     "requests[socks]",
     "bump2version",
     "debugpy",
