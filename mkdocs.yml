@@ -1,5 +1,7 @@
 site_name: "Documentation for Pywssocks"
+site_url: https://pywssocks.zetx.tech
 repo_url: https://github.com/zetxtech/pywssocks
+repo_name: zetxtech/pywssocks
 copyright: Copyright &copy; 2025 Zetx Tech
 
 nav:
@@ -19,6 +21,7 @@ nav:
 
 theme:
   name: material
+  custom_dir: docs/overrides
   icon:
     logo: simple/linkfire
   features:
@@ -104,3 +107,5 @@ extra:
     - icon: simple/github
       link: https://github.com/zetxtech/pywssocks
       name: Project Github Page
+  version:
+    provider: mike

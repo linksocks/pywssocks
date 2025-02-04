@@ -1,4 +1,4 @@
-# Pywssocks Commandline Usage
+# Pywssocks Command-line Usage
 
 Pywssocks is a versatile SOCKS proxy implementation over the WebSocket protocol, supporting both forward and reverse proxy configurations. This guide provides detailed instructions on how to use Pywssocks via the command line.
 
