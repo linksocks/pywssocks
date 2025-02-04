@@ -351,7 +351,6 @@ def test_reverse_wait_reconnect(website):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
-            env={"PYTHONUNBUFFERED": "1"}
         )
 
         try:

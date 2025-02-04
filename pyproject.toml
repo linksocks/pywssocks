@@ -25,7 +25,6 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-xdist",
-    "pytest-asyncio",
     "aiohttp",
     "aiohttp_socks",
     "requests[socks]",
