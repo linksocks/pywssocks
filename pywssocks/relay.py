@@ -80,6 +80,7 @@ class Relay:
             # Authentication negotiation
             logger.debug(f"Starting SOCKS authentication for connect_id: {connect_id}")
             data = await loop.sock_recv(socks_socket, 2)
+            
             version, nmethods = struct.unpack("!BB", data)
             methods = await loop.sock_recv(socks_socket, nmethods)
 
@@ -109,18 +110,6 @@ class Relay:
                 await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0x00))
 
             logger.debug(f"SOCKS authentication completed for connect_id: {connect_id}")
-
-            # Check WebSocket connection by attempting a ping
-            try:
-                await websocket.ping()
-            except ConnectionClosed:
-                logger.debug(f"WebSocket closed for connect_id: {connect_id}")
-                # Return connection failure response to SOCKS client (0x03 = Network unreachable)
-                await loop.sock_sendall(
-                    socks_socket,
-                    bytes([0x05, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-                )
-                return
 
             # Get request details
             header = await loop.sock_recv(socks_socket, 4)
@@ -169,7 +158,7 @@ class Relay:
 
             # Send connection request to server
             await websocket.send(json.dumps(request_data))
-
+            
             # Use asyncio.shield to prevent timeout cancellation causing queue cleanup
             response_future = asyncio.shield(connect_queue.get())
             try:
@@ -199,6 +188,7 @@ class Relay:
 
             if protocol == "tcp":
                 # TCP connection successful, return success response
+                logger.debug(f"Remote successfully connected to {target_addr}:{target_port}.")
                 await loop.sock_sendall(
                     socks_socket,
                     bytes([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
@@ -208,6 +198,7 @@ class Relay:
                 )
             else:
                 # Create UDP socket for local communication
+                logger.debug(f"Remote is ready to accept udp connection request.")
                 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 udp_socket.bind(("127.0.0.1", 0))  # Bind to random port
                 udp_socket.setblocking(False)
@@ -256,7 +247,9 @@ class Relay:
 
         # connect_id is the message_queue index on the connector side
         connect_id = request_data["connect_id"]
-
+        
+        loop = asyncio.get_running_loop()
+        
         try:
             # Determine address family based on address format
             try:
@@ -281,7 +274,7 @@ class Relay:
             logger.debug(
                 f"Attempting TCP connection to: {request_data['address']}:{request_data['port']}"
             )
-            remote_sock.connect((request_data["address"], request_data["port"]))
+            await loop.sock_connect(remote_sock, (request_data["address"], request_data["port"]))
 
             self._message_queues[channel_id] = asyncio.Queue()
             self._channels[channel_id] = remote_sock

@@ -40,3 +40,8 @@ class PortPool:
                 return port
 
             return None
+        
+    def put(self, port: int) -> None:
+        with self._used_ports_lock:
+            if port in self._used_ports:
+                self._used_ports.remove(port)
