@@ -30,6 +30,8 @@ dev = [
     "requests[socks]",
     "bump2version",
     "debugpy",
+    "mkdocs-material",
+    "mkdocstrings[python]>=0.18",
 ]
 
 [project.urls]
@@ -43,6 +45,3 @@ version = {attr = "pywssocks.__version__"}
 
 [tool.setuptools.packages.find]
 namespaces = false
-
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "function"

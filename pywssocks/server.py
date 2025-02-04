@@ -19,6 +19,15 @@ _default_logger = logging.getLogger(__name__)
 
 
 class WSSocksServer(Relay):
+    """
+    A SOCKS5 over WebSocket protocol server.
+    
+    In forward proxy mode, it will receive WebSocket requests from clients, access the network as
+    requested, and return the results to the client.
+    
+    In reverse proxy mode, it will receive SOCKS5 requests and send them to the connected client
+    via WebSocket for parsing.
+    """
     def __init__(
         self,
         ws_host: str = "0.0.0.0",
@@ -29,8 +38,7 @@ class WSSocksServer(Relay):
         logger: Optional[logging.Logger] = None,
         **kw,
     ) -> None:
-        """Initialize WebSocket SOCKS5 Server
-
+        """
         Args:
             ws_host: WebSocket listen address
             ws_port: WebSocket listen port

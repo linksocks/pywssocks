@@ -1,4 +1,3 @@
-import traceback
 from typing import Optional
 import asyncio
 import socket
@@ -16,10 +15,19 @@ _default_logger = logging.getLogger(__name__)
 
 
 class WSSocksClient(Relay):
+    """
+    A SOCKS5 over WebSocket protocol client.
+    
+    In reverse proxy mode, it will receive requests from the client, access the network
+    as requested, and return the results to the server.
+    
+    In forward proxy mode, it will receive SOCKS5 requests and send them to the connected
+    server for parsing via WebSocket.
+    """
     def __init__(
         self,
         token: str,
-        ws_url="ws://localhost:8765",
+        ws_url: str = "ws://localhost:8765",
         reverse: bool = False,
         socks_host: str = "127.0.0.1",
         socks_port: int = 1080,
@@ -30,8 +38,7 @@ class WSSocksClient(Relay):
         logger: Optional[logging.Logger] = None,
         **kw,
     ) -> None:
-        """Initialize WebSocket SOCKS5 client
-
+        """
         Args:
             ws_url: WebSocket server address
             token: Authentication token

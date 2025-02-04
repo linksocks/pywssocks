@@ -1,3 +1,5 @@
+![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks)
+
 # Pywssocks
 
 Pywssocks is a SOCKS proxy implementation over WebSocket protocol.
@@ -17,6 +19,12 @@ This tool allows you to securely expose SOCKS proxy services under Web Applicati
 5. IPv6 over SOCKS5 support.
 6. UDP over SOCKS5 support.
 
+## Potential Applications
+
+1. Distributed HTTP backend.
+2. Bypassing CAPTCHA using client-side proxies.
+3. Secure intranet penetration, using CDN network.
+
 ## Usage
 
 ### As a tool
@@ -24,21 +32,21 @@ This tool allows you to securely expose SOCKS proxy services under Web Applicati
 Forward Proxy:
 
 ```bash
-# server
-pywssocks server -t <token>
+# Server (WebSockets at port 8765, as network connector)
+pywssocks server -t example_token
 
-# client
-pywssocks client -t <token> -u ws://localhost:8765 -p 1080
+# Client (SOCKS5 at port 1080)
+pywssocks client -t example_token -u ws://localhost:8765 -p 1080
 ```
 
 Reverse Proxy:
 
 ```bash
-# server
-pywssocks server -t <token> -p 1080 -r
+# Server (WebSockets at port 8765, SOCKS at port 1080)
+pywssocks server -t example_token -p 1080 -r
 
-# client
-pywssocks client -t <token> -u ws://localhost:8765 -r
+# Client (as network connector)
+pywssocks client -t example_token -u ws://localhost:8765 -r
 ```
 
 ### As a library
@@ -102,34 +110,16 @@ Pywssocks requires `python >= 3.8`, and can be installed by:
 pip install pywssocks
 ```
 
-## Principles
+Pywssocks is also available via docker:
 
-### Forward Socks Proxy
+```bash
+docker run --rm -it jackzzs/pywssocks --help
+```
 
-Forward SOCKS proxy is a method that allows a server to expose its internal network environment while protecting its IP address from being exposed.
+## Documentation
 
-First, start a Pywssocks server on a server that can host websites and be accessed from the public internet, and add a token.
+Visit the documentation: [https://pywssocks.zetx.tech](https://pywssocks.zetx.tech)
 
-Then, on the device that needs to access the server's internal network environment, start the Pywssocks client and connect to the designated URL using the token. Since the transmission uses the WebSocket protocol, any WebSocket-supporting web firewall (such as Cloudflare) can be used as an intermediary layer to protect the server's IP address from being exposed.
+## License
 
-After connecting, the client will open a configurable or random SOCKS5 port for other services to connect to. All requests will be forwarded through the established bidirectional channel, with the server performing the actual connections and sending data.
-
-![Forward Socks Proxy Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/forward_proxy_diagram.svg)
-
-### Reverse Socks Proxy
-
-Reverse socks proxy is a method that allows devices, which cannot be directly accessed from the public internet, to expose their internal network environment.
-
-First, start a Pywssocks server on a server that can host websites and be accessed from the public internet, and add a token.
-
-Then, start a Pywssocks client on the internal network server and connect to the designated URL using the token. Since the transmission uses the WebSocket protocol, any WebSocket-supporting web firewall (such as Cloudflare) can be used as an intermediary layer to protect the server's IP from being exposed.
-
-After connecting, the server will expose a configurable or random socks5 port for other services to connect to. All requests will be forwarded through the established bidirectional channel, with the client performing the actual connections and sending data.
-
-![Reverse Socks Proxy Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/reverse_proxy_diagram.svg)
-
-## Potential Applications
-
-1. Distributed HTTP backend.
-2. Bypassing CAPTCHA using client-side proxies.
-3. Secure intranet penetration, using CDN network.
+Pywssocks is open source under the MIT license.

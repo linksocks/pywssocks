@@ -30,22 +30,20 @@ class Relay:
         socks_socket: socket.socket,
         reason: int = 0x03,
     ):
-        """
-        Refuse SOCKS5 client request
+        """Refuse SOCKS5 client request"""
         
-        SOCKS5_REPLY = {
-            0x00: "succeeded",
-            0x01: "general SOCKS server failure",
-            0x02: "connection not allowed by ruleset",
-            0x03: "network unreachable",
-            0x04: "host unreachable",
-            0x05: "connection refused",
-            0x06: "TTL expired",
-            0x07: "command not supported",
-            0x08: "address type not supported",
-            0x09: "to 0xFF unassigned"
-        }
-        """
+        # SOCKS5_REPLY = {
+        #     0x00: "succeeded",
+        #     0x01: "general SOCKS server failure",
+        #     0x02: "connection not allowed by ruleset",
+        #     0x03: "network unreachable",
+        #     0x04: "host unreachable",
+        #     0x05: "connection refused",
+        #     0x06: "TTL expired",
+        #     0x07: "command not supported",
+        #     0x08: "address type not supported",
+        #     0x09: "to 0xFF unassigned"
+        # }
         
         loop = asyncio.get_event_loop()
         data = await loop.sock_recv(socks_socket, 1024)
