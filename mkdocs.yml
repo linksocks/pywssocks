@@ -8,7 +8,7 @@ nav:
   - Home: index.md
   - Principles: principles.md
   - Tutorial:
-      - Commandline Usage: tutorial/command.md
+      - Command-line Usage: tutorial/cli.md
       - Python Library Usage: tutorial/lib.md
       - Docker Usage: tutorial/docker.md
       - Example Architecture: tutorial/example.md
@@ -21,7 +21,6 @@ nav:
 
 theme:
   name: material
-  custom_dir: docs/overrides
   icon:
     logo: simple/linkfire
   features:
