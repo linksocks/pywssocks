@@ -31,6 +31,7 @@ dev = [
     "debugpy",
     "mkdocs-material",
     "mkdocstrings[python]>=0.18",
+    "pytest-cov",
 ]
 
 [project.urls]
