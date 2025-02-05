@@ -1,4 +1,4 @@
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/zetxtech/pywssocks/ci.yml?logo=github&label=Tests)](https://github.com/zetxtech/pywssocks/actions) [![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks)](https://hub.docker.com/r/jackzzs/pywssocks) [![PyPI - Version](https://img.shields.io/pypi/v/pywssocks)](https://pypi.org/project/pywssocks/)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/zetxtech/pywssocks/ci.yml?logo=github&label=Tests)](https://github.com/zetxtech/pywssocks/actions) [![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks)](https://hub.docker.com/r/jackzzs/pywssocks) [![PyPI - Version](https://img.shields.io/pypi/v/pywssocks)](https://pypi.org/project/pywssocks/) [![Codecov](https://img.shields.io/codecov/c/github/zetxtech/pywssocks)](https://app.codecov.io/gh/zetxtech/pywssocks/tree/main)
 
 # Pywssocks
 
