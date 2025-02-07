@@ -27,11 +27,13 @@ dev = [
     "pytest-xdist",
     "httpx[socks]",
     "requests[socks]",
+    "python-socks[asyncio]",
     "bump2version",
     "debugpy",
     "mkdocs-material",
     "mkdocstrings[python]>=0.18",
     "pytest-cov",
+    "black",
 ]
 
 [project.urls]
@@ -45,3 +47,6 @@ version = {attr = "pywssocks.__version__"}
 
 [tool.setuptools.packages.find]
 namespaces = false
+
+[tool.pytest.ini_options]
+log_cli_level = "DEBUG"

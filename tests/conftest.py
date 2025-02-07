@@ -1,8 +1,37 @@
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+import asyncio
 import threading
 import pytest
+import socket
 
 from .utils import *
+
+SKIP_DEFAULT_FLAGS = ["cli_features"]
+
+
+def pytest_addoption(parser):
+    for flag in SKIP_DEFAULT_FLAGS:
+        parser.addoption(
+            "--{}".format(flag.replace("_", "-")),
+            action="store_true",
+            default=False,
+            help="run {} tests".format(flag),
+        )
+
+
+def pytest_configure(config):
+    for flag in SKIP_DEFAULT_FLAGS:
+        config.addinivalue_line("markers", flag)
+
+
+def pytest_collection_modifyitems(config, items):
+    for flag in SKIP_DEFAULT_FLAGS:
+        if config.getoption("--{}".format(flag.replace("_", "-"))):
+            return
+
+        skip_mark = pytest.mark.skip(reason="need --{} option to run".format(flag))
+        for item in items:
+            if flag in item.keywords:
+                item.add_marker(skip_mark)
 
 
 @pytest.fixture(scope="session", name="udp_server")
@@ -10,76 +39,125 @@ def local_udp_echo_server():
     """Create a local udp echo server"""
     udp_port = get_free_port()
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("localhost", udp_port))
+    async def echo_server():
+        class AsyncUDPServer(asyncio.DatagramProtocol):
+            def connection_made(self, transport):
+                self.transport = transport
 
-    def echo_server():
-        while True:
-            try:
-                data, addr = sock.recvfrom(1024)
-                sock.sendto(data, addr)
-            except:
-                break
+            def datagram_received(self, data, addr):
+                self.transport.sendto(data, addr)
 
-    server_thread = threading.Thread(target=echo_server)
+        return await asyncio.get_event_loop().create_datagram_endpoint(
+            AsyncUDPServer, local_addr=("127.0.0.1", udp_port)
+        )
+
+    def run_server():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        transport, _ = loop.run_until_complete(echo_server())
+        try:
+            loop.run_forever()
+        finally:
+            transport.close()
+            loop.close()
+
+    server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
 
     yield f"127.0.0.1:{udp_port}"
 
-    sock.close()
-
 
 @pytest.fixture(scope="session", name="website")
 def local_http_server():
     """Create a local ipv4 http server"""
-
     http_port = get_free_port()
 
-    class TestHandler(SimpleHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == "/generate_204":
-                self.send_response(204)
-                self.end_headers()
+    async def handle_request(reader, writer):
+        try:
+            request = await reader.read(1024)
+            request_str = request.decode()
+            
+            # Check if request is empty
+            if not request_str:
+                response = "HTTP/1.1 400 Bad Request\r\n\r\n"
             else:
-                self.send_error(404)
+                # Split request into lines and check format
+                request_lines = request_str.split("\n")
+                if not request_lines:
+                    response = "HTTP/1.1 400 Bad Request\r\n\r\n"
+                else:
+                    try:
+                        method, path, _ = request_lines[0].split(" ")
+                        if path == "/generate_204":
+                            response = "HTTP/1.1 204 No Content\r\n\r\n"
+                        else:
+                            response = "HTTP/1.1 404 Not Found\r\n\r\n"
+                    except ValueError:
+                        # Invalid request line format
+                        response = "HTTP/1.1 400 Bad Request\r\n\r\n"
+        except Exception as e:
+            # Handle any other unexpected errors
+            response = "HTTP/1.1 500 Internal Server Error\r\n\r\n"
+        finally:
+            try:
+                writer.write(response.encode())
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                # Ensure writer is closed even if writing fails
+                if not writer.is_closing():
+                    writer.close()
 
-    httpd = HTTPServer(("localhost", http_port), TestHandler)
+    def run_server():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        server = loop.run_until_complete(
+            asyncio.start_server(handle_request, "127.0.0.1", http_port)
+        )
+        loop.run_forever()
 
-    server_thread = threading.Thread(target=httpd.serve_forever)
+    server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
 
     yield f"http://127.0.0.1:{http_port}/generate_204"
 
-    httpd.shutdown()
-    httpd.server_close()
-
 
 @pytest.fixture(scope="session", name="website_v6")
 def local_http_server_v6():
     """Create a local ipv6 http server"""
-
     http_port = get_free_port(ipv6=True)
 
-    class HTTPServerV6(HTTPServer):
-        address_family = socket.AF_INET6
+    async def handle_request(reader, writer):
+        request = await reader.read(1024)
 
-    class TestHandler(SimpleHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == "/generate_204":
-                self.send_response(204)
-                self.end_headers()
-            else:
-                self.send_error(404)
+        request_line = request.decode().split("\n")[0]
+        method, path, _ = request_line.split(" ")
 
-    httpd = HTTPServerV6(("::1", http_port), TestHandler)
+        if path == "/generate_204":
+            response = "HTTP/1.1 204 No Content\r\n\r\n"
+        else:
+            response = "HTTP/1.1 404 Not Found\r\n\r\n"
 
-    server_thread = threading.Thread(target=httpd.serve_forever)
+        writer.write(response.encode())
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    def run_server():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        server = loop.run_until_complete(
+            asyncio.start_server(
+                handle_request, "::1", http_port, family=socket.AF_INET6
+            )
+        )
+        loop.run_forever()
+
+    server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
 
     yield f"http://[::1]:{http_port}/generate_204"
-
-    httpd.shutdown()
-    httpd.server_close()

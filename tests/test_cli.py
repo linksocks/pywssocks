@@ -161,23 +161,13 @@ def wait_for_output(process, text, timeout=6):
     return False
 
 
-def test_website(website):
-    assert_web_connection(website)
-
-
-@pytest.mark.skipif(
-    not has_ipv6_support(), reason="IPv6 is not supported on this system"
-)
-def test_website_ipv6(website_v6):
-    assert_web_connection(website_v6)
-
-
-def test_forward_cli(website):
+def test_cli_forward_basic(website):
     with forward_proxy() as (_, _, _, socks_port):
         assert_web_connection(website, socks_port)
 
 
-def test_forward_reconnect(website):
+@pytest.mark.cli_features
+def test_cli_forward_reconnect(website):
     with forward_proxy() as (
         server_process,
         client_process,
@@ -206,12 +196,13 @@ def test_forward_reconnect(website):
         assert_web_connection(website, socks_port)
 
 
-def test_reverse_cli(website):
+def test_cli_reverse_basic(website):
     with reverse_proxy() as (_, _, _, socks_port):
         assert_web_connection(website, socks_port)
 
 
-def test_reverse_reconnect(website):
+@pytest.mark.cli_features
+def test_cli_reverse_reconnect(website):
     with reverse_proxy() as (
         server_process,
         client_process,
@@ -245,19 +236,22 @@ def test_reverse_reconnect(website):
         assert_web_connection(website, socks_port)
 
 
-def test_forward_with_auth(website):
+@pytest.mark.cli_features
+def test_cli_forward_with_auth(website):
     socks_auth = ("test_user", "test_pass")
     with forward_proxy(socks_auth=socks_auth) as (_, _, _, socks_port):
         assert_web_connection(website, socks_port, socks_auth=socks_auth)
 
 
-def test_reverse_with_auth(website):
+@pytest.mark.cli_features
+def test_cli_reverse_with_auth(website):
     socks_auth = ("test_user", "test_pass")
     with reverse_proxy(socks_auth=socks_auth) as (_, _, _, socks_port):
         assert_web_connection(website, socks_port, socks_auth=socks_auth)
 
 
-def test_reverse_load_balancing(website):
+@pytest.mark.cli_features
+def test_cli_reverse_load_balancing(website):
     with reverse_proxy() as (
         server_process,
         client_process,
@@ -311,7 +305,8 @@ def test_reverse_load_balancing(website):
                 c_process.wait()
 
 
-def test_reverse_wait_reconnect(website):
+@pytest.mark.cli_features
+def test_cli_reverse_wait_reconnect(website):
     with reverse_proxy() as (
         server_process,
         client_process,
@@ -372,10 +367,11 @@ def test_reverse_wait_reconnect(website):
             request_thread.join(timeout=1)
 
 
+@pytest.mark.cli_features
 @pytest.mark.skipif(
     not has_ipv6_support(), reason="IPv6 is not supported on this system"
 )
-def test_forward_ipv6(website_v6):
+def test_cli_forward_ipv6(website_v6):
     with forward_proxy() as (
         server_process,
         client_process,
@@ -385,10 +381,11 @@ def test_forward_ipv6(website_v6):
         assert_web_connection(website_v6, socks_port)
 
 
+@pytest.mark.cli_features
 @pytest.mark.skipif(
     not has_ipv6_support(), reason="IPv6 is not supported on this system"
 )
-def test_reverse_ipv6(website_v6):
+def test_cli_reverse_ipv6(website_v6):
     with reverse_proxy() as (
         server_process,
         client_process,
@@ -398,7 +395,8 @@ def test_reverse_ipv6(website_v6):
         assert_web_connection(website_v6, socks_port)
 
 
-def test_forward_udp(udp_server):
+@pytest.mark.cli_features
+def test_cli_forward_udp(udp_server):
     with forward_proxy() as (
         server_process,
         client_process,
@@ -408,7 +406,8 @@ def test_forward_udp(udp_server):
         assert_udp_connection(udp_server, socks_port)
 
 
-def test_reverse_udp(udp_server):
+@pytest.mark.cli_features
+def test_cli_reverse_udp(udp_server):
     with reverse_proxy() as (
         server_process,
         client_process,
@@ -418,7 +417,8 @@ def test_reverse_udp(udp_server):
         assert_udp_connection(udp_server, socks_port)
 
 
-def test_http_access():
+@pytest.mark.cli_features
+def test_cli_http_access():
     with forward_proxy() as (
         server_process,
         client_process,
