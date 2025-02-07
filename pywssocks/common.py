@@ -1,6 +1,7 @@
 from typing import Iterable, Optional
 import logging
 import threading
+import random
 
 
 class PortPool:
@@ -38,7 +39,7 @@ class PortPool:
             # If no specific port requested, allocate from range
             available_ports = self._port_pool - self._used_ports
             if available_ports:
-                port = next(iter(available_ports))
+                port = random.choice(list(available_ports))
                 self._used_ports.add(port)
                 return port
 

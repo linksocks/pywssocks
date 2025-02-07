@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import asyncio
 import logging
 import socket
@@ -7,13 +7,14 @@ import uuid
 import struct
 
 from websockets.asyncio.connection import Connection
-from websockets.exceptions import ConnectionClosed
 
-logger = logging.getLogger(__name__)
+_default_logger = logging.getLogger(__name__)
 
 
 class Relay:
-    def __init__(self, buffer_size: int = 32768):
+    def __init__(self, logger: Optional[logging.Logger] = None, buffer_size: int = 32768):
+        self._log = logger or _default_logger
+
         self._buf_size = buffer_size
 
         # Map channel_id to message queues
@@ -24,6 +25,9 @@ class Relay:
 
         # Map channel_id to associated UDP socket objects
         self._udp_channels: Dict[str, socket.socket] = {}
+
+        # Map channel_id to associated UDP client hostname and port
+        self._udp_client_addrs: Dict[str, str] = {}
 
     async def _refuse_socks_request(
         self,
@@ -69,14 +73,13 @@ class Relay:
 
         client_id = id(websocket)
         connect_id = f"{client_id}_{str(uuid.uuid4())}"
-        logger.debug(f"Starting SOCKS request handling for connect_id: {connect_id}")
+        self._log.debug(f"Starting SOCKS request handling for connect_id: {connect_id}")
 
         try:
-            socks_socket.setblocking(False)
             loop = asyncio.get_event_loop()
 
             # Authentication negotiation
-            logger.debug(f"Starting SOCKS authentication for connect_id: {connect_id}")
+            self._log.debug(f"Starting SOCKS authentication for connect_id: {connect_id}")
             data = await loop.sock_recv(socks_socket, 2)
 
             version, nmethods = struct.unpack("!BB", data)
@@ -85,9 +88,7 @@ class Relay:
             if socks_username and socks_password:
                 # Require username/password authentication
                 if 0x02 not in methods:
-                    await loop.sock_sendall(
-                        socks_socket, struct.pack("!BB", 0x05, 0xFF)
-                    )
+                    await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0xFF))
                     return
                 await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0x02))
 
@@ -102,16 +103,14 @@ class Relay:
                 password = (await loop.sock_recv(socks_socket, plen)).decode()
 
                 if username != socks_username or password != socks_password:
-                    await loop.sock_sendall(
-                        socks_socket, struct.pack("!BB", 0x01, 0x01)
-                    )
+                    await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x01, 0x01))
                     return
                 await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x01, 0x00))
             else:
                 # No authentication required
                 await loop.sock_sendall(socks_socket, struct.pack("!BB", 0x05, 0x00))
 
-            logger.debug(f"SOCKS authentication completed for connect_id: {connect_id}")
+            self._log.debug(f"SOCKS authentication completed for connect_id: {connect_id}")
 
             # Get request details
             header = await loop.sock_recv(socks_socket, 4)
@@ -166,13 +165,11 @@ class Relay:
             try:
                 # Wait for client connection result
                 response = await asyncio.wait_for(response_future, timeout=10)
-                response_data = (
-                    json.loads(response) if isinstance(response, str) else response
-                )
+                response_data = json.loads(response) if isinstance(response, str) else response
             except asyncio.TimeoutError:
                 # Ensure cleanup on timeout
                 response_future.cancel()
-                logger.error("Connection response timeout.")
+                self._log.error("Connection response timeout.")
                 # Return connection failure response to SOCKS client (0x04 = Host unreachable)
                 await loop.sock_sendall(
                     socks_socket,
@@ -182,7 +179,7 @@ class Relay:
             if not response_data.get("success", False):
                 # Connection failed, return failure response to SOCKS client
                 error_msg = response_data.get("error", "Connection failed")
-                logger.error(f"Target connection failed: {error_msg}.")
+                self._log.error(f"Target connection failed: {error_msg}.")
                 # Return connection failure response to SOCKS client (0x04 = Host unreachable)
                 await loop.sock_sendall(
                     socks_socket,
@@ -192,9 +189,7 @@ class Relay:
 
             if protocol == "tcp":
                 # TCP connection successful, return success response
-                logger.debug(
-                    f"Remote successfully connected to {target_addr}:{target_port}."
-                )
+                self._log.debug(f"Remote successfully connected to {target_addr}:{target_port}.")
                 await loop.sock_sendall(
                     socks_socket,
                     bytes([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
@@ -204,7 +199,7 @@ class Relay:
                 )
             else:
                 # Create UDP socket for local communication
-                logger.debug(f"Remote is ready to accept udp connection request.")
+                self._log.debug(f"Remote is ready to accept udp connection request.")
                 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 udp_socket.bind(("127.0.0.1", 0))  # Bind to random port
                 udp_socket.setblocking(False)
@@ -216,21 +211,17 @@ class Relay:
                 # Use the same IP as the TCP connection for the response
                 bind_ip = socket.inet_aton("127.0.0.1")
                 bind_port_bytes = struct.pack("!H", bound_port)
-                reply = (
-                    struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01)
-                    + bind_ip
-                    + bind_port_bytes
-                )
+                reply = struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01) + bind_ip + bind_port_bytes
 
                 loop = asyncio.get_event_loop()
                 await loop.sock_sendall(socks_socket, reply)
-                logger.debug(f"UDP association established on port {bound_port}")
+                self._log.debug(f"UDP association established on port {bound_port}")
 
                 await self._handle_socks_udp_forward(
                     websocket, socks_socket, udp_socket, response_data["channel_id"]
                 )
         except Exception as e:
-            logger.error(f"Error handling SOCKS request: {e.__class__.__name__}: {e}.")
+            self._log.error(f"Error handling SOCKS request: {e.__class__.__name__}: {e}.")
             try:
                 reply = struct.pack("!BBBB", 0x05, 0x01, 0x00, 0x01)
                 reply += socket.inet_aton("0.0.0.0") + struct.pack("!H", 0)
@@ -242,9 +233,7 @@ class Relay:
             if connect_id and connect_id in self._message_queues:
                 del self._message_queues[connect_id]
 
-    async def _handle_network_connection(
-        self, websocket: Connection, request_data: dict
-    ):
+    async def _handle_network_connection(self, websocket: Connection, request_data: dict):
         protocol = request_data.get("protocol", None)
         if protocol == "tcp":
             return await self._handle_tcp_connection(websocket, request_data)
@@ -279,20 +268,16 @@ class Relay:
                             request_data["port"],
                             proto=socket.IPPROTO_TCP,
                         )
-                        addr_family = addrinfo[0][
-                            0
-                        ]  # Use the first returned address family
+                        addr_family = addrinfo[0][0]  # Use the first returned address family
                     except socket.gaierror as e:
                         raise Exception(f"Failed to resolve address: {e}")
 
             remote_sock = socket.socket(addr_family, socket.SOCK_STREAM)
-            remote_sock.settimeout(10)
-            logger.debug(
+            remote_sock.setblocking(False)
+            self._log.debug(
                 f"Attempting TCP connection to: {request_data['address']}:{request_data['port']}"
             )
-            await loop.sock_connect(
-                remote_sock, (request_data["address"], request_data["port"])
-            )
+            await loop.sock_connect(remote_sock, (request_data["address"], request_data["port"]))
 
             self._message_queues[channel_id] = asyncio.Queue()
             self._channels[channel_id] = remote_sock
@@ -309,9 +294,7 @@ class Relay:
             await self._handle_remote_tcp_forward(websocket, remote_sock, channel_id)
 
         except Exception as e:
-            logger.error(
-                f"Failed to process connection request: {e.__class__.__name__}: {e}."
-            )
+            self._log.error(f"Failed to process connection request: {e.__class__.__name__}: {e}.")
             response_data = {
                 "type": "connect_response",
                 "success": False,
@@ -330,12 +313,12 @@ class Relay:
         connect_id = request_data["connect_id"]
 
         # Create local UDP socket
-        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_socket.bind(("0.0.0.0", 0))  # Bind to random port
-        udp_socket.setblocking(False)
+        local_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        local_socket.bind(("0.0.0.0", 0))  # Bind to random port
+        local_socket.setblocking(False)
 
         # Get the UDP socket's bound address and port
-        _, bound_port = udp_socket.getsockname()
+        _, bound_port = local_socket.getsockname()
 
         self._message_queues[channel_id] = asyncio.Queue()
 
@@ -348,7 +331,40 @@ class Relay:
         }
         await websocket.send(json.dumps(response_data))
 
-        await self._handle_remote_udp_forward(websocket, udp_socket, channel_id)
+        await self._handle_remote_udp_forward(websocket, local_socket, channel_id)
+
+    async def _udp_to_websocket(
+        self, websocket: Connection, udp_socket: socket.socket, channel_id: str
+    ):
+        """Handle UDP to WebSocket forwarding"""
+        loop = asyncio.get_running_loop()
+        while True:
+            data, addr = await loop.sock_recvfrom(
+                udp_socket,
+                min(self._buf_size, 65507),  # Max UDP packet size
+            )
+            if not data:  # Connection closed
+                break
+
+            msg = {
+                "type": "data",
+                "protocol": "udp",
+                "channel_id": channel_id,
+                "data": data.hex(),
+                "address": addr[0],
+                "port": addr[1],
+            }
+            await websocket.send(json.dumps(msg))
+
+    async def _websocket_to_udp(self, udp_socket: socket.socket, queue: asyncio.Queue):
+        """Handle WebSocket to UDP forwarding"""
+        loop = asyncio.get_running_loop()
+        while True:
+            msg_data = await queue.get()
+            binary_data = bytes.fromhex(msg_data["data"])
+            target_addr = (msg_data["target_addr"], msg_data["target_port"])
+            await loop.sock_sendto(udp_socket, binary_data, target_addr)
+            self._log.debug(f"Sent UDP data to: addr={target_addr} size={len(binary_data)}.")
 
     async def _handle_remote_udp_forward(
         self, websocket: Connection, local_socket: socket.socket, channel_id: str
@@ -356,47 +372,27 @@ class Relay:
         """Read from remote udp socket and send to websocket, and vice versa."""
 
         try:
-            local_socket.setblocking(False)
-            while True:
+            loop = asyncio.get_running_loop()
+            queue = self._message_queues[channel_id]
+
+            # Create tasks for both directions of communication
+            udp_to_ws = asyncio.create_task(
+                self._udp_to_websocket(websocket, local_socket, channel_id)
+            )
+            ws_to_udp = asyncio.create_task(self._websocket_to_udp(local_socket, queue))
+
+            # Wait for either task to complete (or fail)
+            done, pending = await asyncio.wait(
+                [udp_to_ws, ws_to_udp], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel the remaining task
+            for task in pending:
+                task.cancel()
                 try:
-                    # Read data from local UDP socket
-                    try:
-                        data, addr = local_socket.recvfrom(
-                            min(self._buf_size, 65507)
-                        )  # Max UDP packet size
-                        if data:
-                            msg = {
-                                "type": "data",
-                                "protocol": "udp",
-                                "channel_id": channel_id,
-                                "data": data.hex(),
-                                "address": addr[0],
-                                "port": addr[1],
-                            }
-                            await websocket.send(json.dumps(msg))
-                            logger.debug(
-                                f"Sent UDP data to WebSocket: channel={channel_id}, size={len(data)}."
-                            )
-                    except BlockingIOError:
-                        pass
-
-                    # Receive data from WebSocket server
-                    try:
-                        msg_data = await asyncio.wait_for(
-                            self._message_queues[channel_id].get(), timeout=0.1
-                        )
-                        binary_data = bytes.fromhex(msg_data["data"])
-                        target_addr = (msg_data["target_addr"], msg_data["target_port"])
-                        local_socket.sendto(binary_data, target_addr)
-                        logger.debug(
-                            f"Sent UDP data to target: channel={channel_id}, size={len(binary_data)}."
-                        )
-                    except asyncio.TimeoutError:
-                        continue
-
-                except Exception as e:
-                    logger.error(f"UDP forwarding error: {e.__class__.__name__}: {e}.")
-                    break
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         finally:
             local_socket.close()
@@ -405,48 +401,62 @@ class Relay:
             if channel_id in self._message_queues:
                 del self._message_queues[channel_id]
 
+    async def _tcp_to_websocket(
+        self, websocket: Connection, tcp_socket: socket.socket, channel_id: str
+    ):
+        """Handle TCP to WebSocket forwarding"""
+        loop = asyncio.get_running_loop()
+        while True:
+            data = await loop.sock_recv(
+                tcp_socket,
+                min(self._buf_size, 65535),  # Max TCP packet size
+            )
+            if not data:  # Connection closed
+                break
+
+            msg = {
+                "type": "data",
+                "protocol": "tcp",
+                "channel_id": channel_id,
+                "data": data.hex(),
+            }
+            await websocket.send(json.dumps(msg))
+
+    async def _websocket_to_tcp(self, tcp_socket: socket.socket, queue: asyncio.Queue):
+        """Handle WebSocket to TCP forwarding"""
+        loop = asyncio.get_running_loop()
+        while True:
+            msg_data = await queue.get()
+            binary_data = bytes.fromhex(msg_data["data"])
+            await loop.sock_sendall(tcp_socket, binary_data)
+            self._log.debug(f"Sent TCP data to target: size={len(binary_data)}.")
+
     async def _handle_remote_tcp_forward(
         self, websocket: Connection, remote_socket: socket.socket, channel_id: str
     ):
         """Read from remote tcp socket and send to websocket, and vice versa."""
 
         try:
-            remote_socket.setblocking(False)
-            while True:
-                try:
-                    # Read data from remote server
-                    try:
-                        data = remote_socket.recv(
-                            min(self._buf_size, 65535)
-                        )  # Max TCP packet size
-                        if data:
-                            msg = {
-                                "type": "data",
-                                "protocol": "tcp",
-                                "channel_id": channel_id,
-                                "data": data.hex(),
-                            }
-                            await websocket.send(json.dumps(msg))
-                    except BlockingIOError:
-                        pass
+            queue = self._message_queues[channel_id]
 
-                    # Receive data from WebSocket server
-                    try:
-                        msg_data = await asyncio.wait_for(
-                            self._message_queues[channel_id].get(), timeout=0.1
-                        )
-                        binary_data = bytes.fromhex(msg_data["data"])
-                        remote_socket.send(binary_data)
-                        logger.debug(
-                            f"Sent TCP data to remote server: channel={channel_id}, size={len(binary_data)}."
-                        )
-                    except asyncio.TimeoutError:
-                        continue
-                except OSError:
-                    break
-                except Exception as e:
-                    logger.error(f"TCP forwarding error: {e.__class__.__name__}: {e}.")
-                    break
+            # Create tasks for both directions of communication
+            tcp_to_ws = asyncio.create_task(
+                self._tcp_to_websocket(websocket, remote_socket, channel_id)
+            )
+            ws_to_tcp = asyncio.create_task(self._websocket_to_tcp(remote_socket, queue))
+
+            # Wait for either task to complete (or fail)
+            done, pending = await asyncio.wait(
+                [tcp_to_ws, ws_to_tcp], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel the remaining task
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         finally:
             remote_socket.close()
@@ -466,52 +476,24 @@ class Relay:
 
             socks_socket.setblocking(False)
 
-            while True:
+            # Create tasks for both directions of communication
+            socks_to_ws = asyncio.create_task(
+                self._tcp_to_websocket(websocket, socks_socket, channel_id)
+            )
+            ws_to_socks = asyncio.create_task(self._websocket_to_tcp(socks_socket, message_queue))
+
+            # Wait for either task to complete (or fail)
+            done, pending = await asyncio.wait(
+                [socks_to_ws, ws_to_socks], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel the remaining task
+            for task in pending:
+                task.cancel()
                 try:
-                    # Read data from SOCKS client
-                    try:
-                        data = socks_socket.recv(
-                            min(self._buf_size, 65535)
-                        )  # Max TCP packet size
-                        if not data:  # Connection closed
-                            break
-                        await websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "data",
-                                    "protocol": "tcp",
-                                    "channel_id": channel_id,
-                                    "data": data.hex(),
-                                }
-                            )
-                        )
-                    except BlockingIOError:
-                        pass
-                    except ConnectionClosed:
-                        # Exit when WebSocket connection is closed
-                        break
-                    except Exception as e:
-                        logger.error(f"Send data error: {e.__class__.__name__}: {e}.")
-                        break
-
-                    # Receive data from WebSocket client
-                    try:
-                        msg_data = await asyncio.wait_for(
-                            message_queue.get(), timeout=0.1
-                        )
-                        binary_data = bytes.fromhex(msg_data["data"])
-                        socks_socket.send(binary_data)
-                    except asyncio.TimeoutError:
-                        continue
-                    except Exception as e:
-                        logger.error(
-                            f"Receive data error: {e.__class__.__name__}: {e}."
-                        )
-                        break
-
-                except Exception as e:
-                    logger.error(f"Data forwarding error: {e.__class__.__name__}: {e}.")
-                    break
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         finally:
             socks_socket.close()
@@ -529,104 +511,29 @@ class Relay:
             self._message_queues[channel_id] = asyncio.Queue()
             self._udp_channels[channel_id] = udp_socket
 
-            addr = None  # Store socks connector address
-            socks_socket.setblocking(False)
+            # Create tasks for monitoring TCP connection and handling UDP data
+            tcp_monitor = asyncio.create_task(self._monitor_socks_tcp(socks_socket))
+            socks_udp_to_ws = asyncio.create_task(
+                self._socks_udp_to_websocket(websocket, udp_socket, channel_id)
+            )
+            ws_to_socks_udp = asyncio.create_task(
+                self._websocket_to_socks_udp(udp_socket, channel_id)
+            )
 
-            while True:
+            # Wait for any task to complete (or fail)
+            done, pending = await asyncio.wait(
+                [tcp_monitor, socks_udp_to_ws, ws_to_socks_udp],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Cancel remaining tasks
+            for task in pending:
+                task.cancel()
                 try:
-                    # Check if TCP connection is closed (indicates client termination)
-                    try:
-                        data = socks_socket.recv(1)
-                        if not data:
-                            break
-                    except (BlockingIOError, ConnectionError):
-                        pass
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
-                    # Handle UDP data from local client
-                    try:
-                        data, addr = udp_socket.recvfrom(min(self._buf_size, 65507))
-                        if data:
-                            # First 3 bytes are reserved + fragment ID + address type
-                            # Skip SOCKS UDP header and get actual data
-                            if len(data) > 3:  # Minimal UDP header
-                                header = data[0:3]
-                                atyp = data[3]
-                                if atyp == 0x01:  # IPv4
-                                    addr_size = 4
-                                    addr_bytes = data[4:8]
-                                    target_addr = socket.inet_ntoa(addr_bytes)
-                                    port_bytes = data[8:10]
-                                    target_port = int.from_bytes(port_bytes, "big")
-                                    payload = data[10:]
-                                elif atyp == 0x03:  # Domain
-                                    addr_len = data[4]
-                                    addr_bytes = data[5 : 5 + addr_len]
-                                    target_addr = addr_bytes.decode()
-                                    port_bytes = data[5 + addr_len : 7 + addr_len]
-                                    target_port = int.from_bytes(port_bytes, "big")
-                                    payload = data[7 + addr_len :]
-                                else:
-                                    continue
-
-                                msg = {
-                                    "type": "data",
-                                    "protocol": "udp",
-                                    "channel_id": channel_id,
-                                    "data": payload.hex(),
-                                    "target_addr": target_addr,
-                                    "target_port": target_port,
-                                }
-                                await websocket.send(json.dumps(msg))
-                                logger.debug(
-                                    f"Sent UDP data to WebSocket: channel={channel_id}, size={len(payload)}"
-                                )
-                    except BlockingIOError:
-                        pass
-
-                    # Handle data from WebSocket
-                    try:
-                        msg_data = await asyncio.wait_for(
-                            self._message_queues[channel_id].get(), timeout=0.1
-                        )
-                        binary_data = bytes.fromhex(msg_data["data"])
-
-                        if not addr:  # Skip if no client address available
-                            logger.warning(
-                                f"Dropping UDP packet: no socks user address available."
-                            )
-                            continue
-
-                        # Construct SOCKS UDP header
-                        udp_header = bytearray([0, 0, 0])  # RSV + FRAG
-                        from_addr = msg_data["address"]
-                        from_port = msg_data["port"]
-
-                        try:
-                            # Try parsing as IPv4
-                            addr_bytes = socket.inet_aton(from_addr)
-                            udp_header.append(0x01)  # ATYP = IPv4
-                            udp_header.extend(addr_bytes)
-                        except socket.error:
-                            # Treat as domain name
-                            domain_bytes = from_addr.encode()
-                            udp_header.append(0x03)  # ATYP = Domain
-                            udp_header.append(len(domain_bytes))
-                            udp_header.extend(domain_bytes)
-
-                        udp_header.extend(from_port.to_bytes(2, "big"))
-                        udp_header.extend(binary_data)
-
-                        # Send to UDP client
-                        udp_socket.sendto(bytes(udp_header), addr)
-                        logger.debug(
-                            f"Sent UDP data to client: channel={channel_id}, size={len(binary_data)}"
-                        )
-                    except asyncio.TimeoutError:
-                        continue
-
-                except Exception as e:
-                    logger.error(f"UDP forwarding error: {e.__class__.__name__}: {e}")
-                    break
         finally:
             udp_socket.close()
             socks_socket.close()
@@ -634,3 +541,104 @@ class Relay:
                 del self._udp_channels[channel_id]
             if channel_id in self._message_queues:
                 del self._message_queues[channel_id]
+
+    async def _monitor_socks_tcp(self, socks_socket: socket.socket):
+        """Monitor TCP connection for closure"""
+        loop = asyncio.get_running_loop()
+        while True:
+            data = await loop.sock_recv(socks_socket, 1)
+            if not data:  # Connection closed
+                break
+
+    async def _socks_udp_to_websocket(
+        self, websocket: Connection, udp_socket: socket.socket, channel_id: str
+    ):
+        """Handle SOCKS UDP to WebSocket forwarding"""
+        loop = asyncio.get_running_loop()
+        while True:
+            data, addr = await loop.sock_recvfrom(
+                udp_socket,
+                min(self._buf_size, 65507),  # Max UDP packet size
+            )
+
+            self._udp_client_addrs[channel_id] = addr
+
+            # Parse SOCKS UDP header
+            if len(data) > 3:  # Minimal UDP header
+                header = data[0:3]
+                atyp = data[3]
+
+                if atyp == 0x01:  # IPv4
+                    addr_size = 4
+                    addr_bytes = data[4:8]
+                    target_addr = socket.inet_ntoa(addr_bytes)
+                    port_bytes = data[8:10]
+                    target_port = int.from_bytes(port_bytes, "big")
+                    payload = data[10:]
+                elif atyp == 0x03:  # Domain
+                    addr_len = data[4]
+                    addr_bytes = data[5 : 5 + addr_len]
+                    target_addr = addr_bytes.decode()
+                    port_bytes = data[5 + addr_len : 7 + addr_len]
+                    target_port = int.from_bytes(port_bytes, "big")
+                    payload = data[7 + addr_len :]
+                else:
+                    self._log.debug('Can not parse UDP packet from associated port.')
+                    continue
+
+                msg = {
+                    "type": "data",
+                    "protocol": "udp",
+                    "channel_id": channel_id,
+                    "data": payload.hex(),
+                    "target_addr": target_addr,
+                    "target_port": target_port,
+                }
+                await websocket.send(json.dumps(msg))
+                self._log.debug(
+                    f"Sent UDP data to WebSocket: channel={channel_id}, size={len(payload)}"
+                )
+            else:
+                self._log.debug('UDP packet too small, ignoring.')
+                continue
+
+    async def _websocket_to_socks_udp(
+        self, udp_socket: socket.socket, channel_id: str
+    ):
+        """Handle WebSocket to SOCKS UDP forwarding"""
+        loop = asyncio.get_running_loop()
+        queue = self._message_queues[channel_id]
+        while True:
+            msg_data = await queue.get()
+            binary_data = bytes.fromhex(msg_data["data"])
+            from_addr = msg_data["address"]
+            from_port = msg_data["port"]
+
+            # Construct SOCKS UDP header
+            udp_header = bytearray([0, 0, 0])  # RSV + FRAG
+
+            try:
+                # Try parsing as IPv4
+                addr_bytes = socket.inet_aton(from_addr)
+                udp_header.append(0x01)  # ATYP = IPv4
+                udp_header.extend(addr_bytes)
+            except socket.error:
+                # Treat as domain name
+                domain_bytes = from_addr.encode()
+                udp_header.append(0x03)  # ATYP = Domain
+                udp_header.append(len(domain_bytes))
+                udp_header.extend(domain_bytes)
+
+            udp_header.extend(from_port.to_bytes(2, "big"))
+            udp_header.extend(binary_data)
+
+            # Send to UDP
+            addr = self._udp_client_addrs.get(channel_id, None)
+            if not addr:
+                if not addr:  # Skip if no client address available
+                    self._log.warning(
+                        f"Dropping UDP packet: no socks client address available."
+                    )
+                    continue
+            await loop.sock_sendto(udp_socket, bytes(udp_header), addr)
+            self._log.debug(f"Sent UDP data to target: addr={addr} size={len(binary_data)}")

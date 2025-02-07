@@ -11,8 +11,6 @@ from websockets.asyncio.client import ClientConnection, connect
 from pywssocks.relay import Relay
 from pywssocks import __version__
 
-_default_logger = logging.getLogger(__name__)
-
 
 class WSSocksClient(Relay):
     """
@@ -36,6 +34,7 @@ class WSSocksClient(Relay):
         socks_password: Optional[str] = None,
         socks_wait_server: bool = True,
         reconnect: bool = True,
+        reconnect_interval: float = 5,
         logger: Optional[logging.Logger] = None,
         **kw,
     ) -> None:
@@ -48,16 +47,18 @@ class WSSocksClient(Relay):
             socks_username: SOCKS5 authentication username
             socks_password: SOCKS5 authentication password
             socks_wait_server: Wait for server connection before starting the SOCKS server,
-                otherwise start the SOCKS server when the client starts.
+                otherwise start the SOCKS server when the client starts
             reconnect: Automatically reconnect to the server
+            reconnect_interval: Interval between reconnection trials
             logger: Custom logger instance
         """
-        super().__init__(**kw)
+        super().__init__(logger=logger, **kw)
 
         self._ws_url: str = self._convert_ws_path(ws_url)
         self._token: str = token
         self._reverse: bool = reverse
         self._reconnect: bool = reconnect
+        self._reconnect_interval: float = reconnect_interval
 
         self._socks_host: str = socks_host
         self._socks_port: int = socks_port
@@ -67,8 +68,6 @@ class WSSocksClient(Relay):
 
         self._socks_server: Optional[socket.socket] = None
         self._websocket: Optional[ClientConnection] = None
-
-        self._log = logger or _default_logger
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
@@ -170,19 +169,17 @@ class WSSocksClient(Relay):
             )
 
             loop = asyncio.get_event_loop()
+            if ready_event:
+                ready_event.set()
             while True:
                 try:
-                    if ready_event:
-                        ready_event.set()
                     client_sock, addr = await loop.sock_accept(socks_server)
                     self._log.debug(f"Accepted SOCKS5 connection from {addr}")
                     asyncio.create_task(self._handle_socks_request(client_sock))
                 except Exception as e:
-                    self._log.error(f"Error accepting SOCKS connection: {e}")
-                    await asyncio.sleep(0.1)
-
+                    self._log.error(f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}")
         except Exception as e:
-            self._log.error(f"SOCKS server error: {e}")
+            self._log.error(f"SOCKS server error: {e.__class__.__name__}: {e}")
         finally:
             if self._socks_server:
                 self._socks_server.close()
@@ -278,7 +275,7 @@ class WSSocksClient(Relay):
                         self._log.error(
                             "WebSocket connection closed. Retrying in 5 seconds..."
                         )
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(self._reconnect_interval)
                     else:
                         self._log.error("WebSocket connection closed. Exiting...")
                         break
@@ -287,7 +284,7 @@ class WSSocksClient(Relay):
                         self._log.error(
                             f"Connection error: {e.__class__.__name__}: {e}. Retrying in 5 seconds..."
                         )
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(self._reconnect_interval)
                     else:
                         self._log.error(
                             f"Connection error: {e.__class__.__name__}: {e}. Exiting..."
@@ -361,7 +358,7 @@ class WSSocksClient(Relay):
                         self._log.error(
                             "WebSocket connection closed. Retrying in 5 seconds..."
                         )
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(self._reconnect_interval)
                     else:
                         self._log.error("WebSocket connection closed. Exiting...")
                         break
@@ -370,7 +367,7 @@ class WSSocksClient(Relay):
                         self._log.error(
                             f"Connection error: {e.__class__.__name__}: {e}. Retrying in 5 seconds..."
                         )
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(self._reconnect_interval)
                     else:
                         self._log.error(
                             f"Connection error: {e.__class__.__name__}: {e}. Exiting..."
