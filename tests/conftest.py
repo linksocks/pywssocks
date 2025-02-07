@@ -77,7 +77,7 @@ def local_http_server():
         try:
             request = await reader.read(1024)
             request_str = request.decode()
-            
+
             # Check if request is empty
             if not request_str:
                 response = "HTTP/1.1 400 Bad Request\r\n\r\n"

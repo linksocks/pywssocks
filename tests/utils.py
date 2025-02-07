@@ -5,10 +5,11 @@ import random
 
 logger = logging.getLogger()
 
+
 def get_free_port(ipv6=False, min_port=10000, max_port=65535):
     """Get a free port for either IPv4 or IPv6 within specified range"""
     addr_family = socket.AF_INET6 if ipv6 else socket.AF_INET
-    
+
     for _ in range(1000):
         port = random.randint(min_port, max_port)
         with socket.socket(addr_family, socket.SOCK_STREAM) as s:
@@ -29,15 +30,15 @@ def assert_web_connection(
 ):
     """Helper function to test connection to the local http server with or without proxy"""
     import requests
-    
-    msg = f'Requesting web connection test for {website}'
+
+    msg = f"Requesting web connection test for {website}"
     if socks_port:
-        msg += f' using SOCKS5 at 127.0.0.1:{socks_port}'
+        msg += f" using SOCKS5 at 127.0.0.1:{socks_port}"
     if socks_auth:
-        msg += ' with auth'
-    msg += '.'
+        msg += " with auth"
+    msg += "."
     logger.info(msg)
-    
+
     session = requests.Session()
     session.trust_env = False
     if socks_port:
@@ -74,13 +75,13 @@ async def async_assert_web_connection(
     """Helper function to test async connection to the local http server with or without proxy"""
     import httpx
     import asyncio
-    
-    msg = f'Requesting web connection test for {website}'
+
+    msg = f"Requesting web connection test for {website}"
     if socks_port:
-        msg += f' using SOCKS5 at 127.0.0.1:{socks_port}'
+        msg += f" using SOCKS5 at 127.0.0.1:{socks_port}"
     if socks_auth:
-        msg += ' with auth'
-    msg += '.'
+        msg += " with auth"
+    msg += "."
     logger.info(msg)
 
     if socks_port:
@@ -94,14 +95,13 @@ async def async_assert_web_connection(
 
     async with httpx.AsyncClient(proxy=proxy_url, timeout=timeout) as client:
         try:
-            response = await asyncio.wait_for(
-                client.get(website),
-                timeout=timeout
-            )
+            response = await asyncio.wait_for(client.get(website), timeout=timeout)
             assert response.status_code == 204
             return response
         except asyncio.TimeoutError:
-            raise RuntimeError("Web connection test FAILED: Operation timed out") from None
+            raise RuntimeError(
+                "Web connection test FAILED: Operation timed out"
+            ) from None
         except Exception as e:
             raise RuntimeError(
                 f"Web connection test FAILED: {e.__class__.__name__}: {e}"
@@ -168,43 +168,48 @@ async def async_assert_udp_connection(udp_server, socks_port=None, socks_auth=No
         # Create TCP socket for SOCKS5 negotiation
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp_sock.setblocking(False)
-        
+
         try:
-            await loop.sock_connect(tcp_sock, ('127.0.0.1', socks_port))
-            
+            await loop.sock_connect(tcp_sock, ("127.0.0.1", socks_port))
+
             # SOCKS5 handshake
             if socks_auth:
                 # Handshake with authentication methods
-                await loop.sock_sendall(tcp_sock, b'\x05\x02\x00\x02')
+                await loop.sock_sendall(tcp_sock, b"\x05\x02\x00\x02")
             else:
                 # Handshake without authentication
-                await loop.sock_sendall(tcp_sock, b'\x05\x01\x00')
-            
+                await loop.sock_sendall(tcp_sock, b"\x05\x01\x00")
+
             auth_resp = await loop.sock_recv(tcp_sock, 2)
             if auth_resp[0] != 0x05:
                 raise RuntimeError("SOCKS5 protocol error")
-                
+
             if auth_resp[1] == 0x02 and socks_auth:
                 # Send username/password authentication
                 username, password = socks_auth
-                auth_msg = struct.pack('!B%dsB%ds' % (len(username), len(password)),
-                    1, username.encode(), len(password), password.encode())
+                auth_msg = struct.pack(
+                    "!B%dsB%ds" % (len(username), len(password)),
+                    1,
+                    username.encode(),
+                    len(password),
+                    password.encode(),
+                )
                 await loop.sock_sendall(tcp_sock, auth_msg)
                 auth_resp = await loop.sock_recv(tcp_sock, 2)
                 if auth_resp[1] != 0:
                     raise RuntimeError("SOCKS5 authentication failed")
-            
+
             # UDP associate request
-            udp_req = struct.pack('!BBBBIH', 0x05, 0x03, 0x00, 0x01, 0, 0)
+            udp_req = struct.pack("!BBBBIH", 0x05, 0x03, 0x00, 0x01, 0, 0)
             await loop.sock_sendall(tcp_sock, udp_req)
-            
+
             resp = await loop.sock_recv(tcp_sock, 10)
             if resp[1] != 0:
                 raise RuntimeError(f"SOCKS5 UDP associate failed with code {resp[1]}")
-            
+
             # Parse the UDP relay address and port from response
-            udp_relay_port = struct.unpack('!H', resp[8:10])[0]
-            
+            udp_relay_port = struct.unpack("!H", resp[8:10])[0]
+
             # Create UDP socket
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setblocking(False)
@@ -215,7 +220,7 @@ async def async_assert_udp_connection(udp_server, socks_port=None, socks_auth=No
         tcp_sock = None
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setblocking(False)
-    
+
     try:
         test_data = b"Hello UDP"
         success_count = 0
@@ -225,18 +230,21 @@ async def async_assert_udp_connection(udp_server, socks_port=None, socks_auth=No
             try:
                 if socks_port:
                     # Build SOCKS5 UDP request header for IPv4
-                    udp_header = struct.pack('!BBBB4sH',
-                        0,      # RSV
-                        0,      # FRAG
-                        0,      # Reserved
-                        0x01,   # ATYP (IPv4)
+                    udp_header = struct.pack(
+                        "!BBBB4sH",
+                        0,  # RSV
+                        0,  # FRAG
+                        0,  # Reserved
+                        0x01,  # ATYP (IPv4)
                         socket.inet_aton(host),  # IPv4 address
-                        port    # Port
+                        port,  # Port
                     )
-                    
+
                     await asyncio.wait_for(
-                        loop.sock_sendto(sock, udp_header + test_data, ('127.0.0.1', udp_relay_port)),
-                        timeout=0.5
+                        loop.sock_sendto(
+                            sock, udp_header + test_data, ("127.0.0.1", udp_relay_port)
+                        ),
+                        timeout=0.5,
                     )
                     data, _ = await asyncio.wait_for(
                         loop.sock_recvfrom(sock, 1024), timeout=0.5
@@ -250,7 +258,7 @@ async def async_assert_udp_connection(udp_server, socks_port=None, socks_auth=No
                     data, _ = await asyncio.wait_for(
                         loop.sock_recvfrom(sock, 1024), timeout=0.5
                     )
-                
+
                 if data == test_data:
                     success_count += 1
             except (asyncio.TimeoutError, BlockingIOError):

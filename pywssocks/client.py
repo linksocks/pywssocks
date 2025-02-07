@@ -177,7 +177,9 @@ class WSSocksClient(Relay):
                     self._log.debug(f"Accepted SOCKS5 connection from {addr}")
                     asyncio.create_task(self._handle_socks_request(client_sock))
                 except Exception as e:
-                    self._log.error(f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}")
+                    self._log.error(
+                        f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}"
+                    )
         except Exception as e:
             self._log.error(f"SOCKS server error: {e.__class__.__name__}: {e}")
         finally:

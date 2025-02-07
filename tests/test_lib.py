@@ -171,7 +171,9 @@ def test_website_async_tester(website):
     return asyncio.run(asyncio.wait_for(_main(), 30))
 
 
-@pytest.mark.skipif(not has_ipv6_support(), reason="IPv6 is not supported on this system")
+@pytest.mark.skipif(
+    not has_ipv6_support(), reason="IPv6 is not supported on this system"
+)
 def test_website_ipv6(website_v6):
     assert_web_connection(website_v6)
 
@@ -264,7 +266,9 @@ def test_reverse_remove_token(caplog, website):
     return asyncio.run(asyncio.wait_for(_main(), 30))
 
 
-@pytest.mark.skipif(not has_ipv6_support(), reason="IPv6 is not supported on this system")
+@pytest.mark.skipif(
+    not has_ipv6_support(), reason="IPv6 is not supported on this system"
+)
 def test_forward_ipv6(caplog, website_v6):
     async def _main():
         async with forward_proxy() as (server, client, socks_port):
@@ -273,7 +277,9 @@ def test_forward_ipv6(caplog, website_v6):
     return asyncio.run(asyncio.wait_for(_main(), 30))
 
 
-@pytest.mark.skipif(not has_ipv6_support(), reason="IPv6 is not supported on this system")
+@pytest.mark.skipif(
+    not has_ipv6_support(), reason="IPv6 is not supported on this system"
+)
 def test_reverse_ipv6(caplog, website_v6):
     async def _main():
         async with reverse_proxy() as (server, client, socks_port):
