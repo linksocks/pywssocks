@@ -184,6 +184,10 @@ class WSSocksClient(Relay):
             self._log.error(f"SOCKS server error: {e.__class__.__name__}: {e}")
         finally:
             if self._socks_server:
+                try:
+                    loop.remove_reader(self._socks_server.fileno())
+                except:
+                    pass
                 self._socks_server.close()
 
     async def _handle_socks_request(self, socks_socket: socket.socket) -> None:
