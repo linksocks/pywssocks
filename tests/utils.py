@@ -2,6 +2,8 @@ import logging
 import socket
 from typing import Optional, Tuple
 import random
+import struct
+import asyncio
 
 logger = logging.getLogger()
 
@@ -74,7 +76,6 @@ async def async_assert_web_connection(
 ):
     """Helper function to test async connection to the local http server with or without proxy"""
     import httpx
-    import asyncio
 
     msg = f"Requesting web connection test for {website}"
     if socks_port:
@@ -110,7 +111,6 @@ async def async_assert_web_connection(
 
 def assert_udp_connection(udp_server, socks_port=None, socks_auth=None):
     """Helper function to connect to the local udp echo server with or without proxy"""
-
     import socks
 
     host, port = udp_server.split(":")
@@ -159,9 +159,6 @@ async def async_assert_udp_connection(udp_server, socks_port=None, socks_auth=No
     """Helper function to async connect to the local udp echo server with or without proxy"""
     host, port = udp_server.split(":")
     port = int(port)
-
-    import asyncio
-    import struct
 
     loop = asyncio.get_event_loop()
     if socks_port:
@@ -221,54 +218,62 @@ async def async_assert_udp_connection(udp_server, socks_port=None, socks_auth=No
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setblocking(False)
 
+    class UDPProtocol(asyncio.DatagramProtocol):
+        def __init__(
+            self,
+        ):
+            self.received_data = asyncio.Queue()
+
+        def datagram_received(self, data, addr):
+            if socks_port:
+                data = data[10:]  # Skip SOCKS5 UDP header
+            self.received_data.put_nowait(data)
+
     try:
         test_data = b"Hello UDP"
         success_count = 0
         total_attempts = 10
 
-        for i in range(total_attempts):
-            try:
-                if socks_port:
-                    # Build SOCKS5 UDP request header for IPv4
-                    udp_header = struct.pack(
-                        "!BBBB4sH",
-                        0,  # RSV
-                        0,  # FRAG
-                        0,  # Reserved
-                        0x01,  # ATYP (IPv4)
-                        socket.inet_aton(host),  # IPv4 address
-                        port,  # Port
-                    )
+        # Create UDP endpoint
+        transport, protocol = await loop.create_datagram_endpoint(
+            UDPProtocol, sock=sock
+        )
 
-                    await asyncio.wait_for(
-                        loop.sock_sendto(
-                            sock, udp_header + test_data, ("127.0.0.1", udp_relay_port)
-                        ),
-                        timeout=0.5,
-                    )
-                    data, _ = await asyncio.wait_for(
-                        loop.sock_recvfrom(sock, 1024), timeout=0.5
-                    )
-                    # Remove SOCKS5 UDP response header
-                    data = data[10:]  # Skip UDP header
-                else:
-                    await asyncio.wait_for(
-                        loop.sock_sendto(sock, test_data, (host, port)), timeout=0.5
-                    )
-                    data, _ = await asyncio.wait_for(
-                        loop.sock_recvfrom(sock, 1024), timeout=0.5
-                    )
+        try:
+            for _ in range(total_attempts):
+                try:
+                    if socks_port:
+                        # Build SOCKS5 UDP request header for IPv4
+                        udp_header = struct.pack(
+                            "!BBBB4sH",
+                            0,  # RSV
+                            0,  # FRAG
+                            0,  # Reserved
+                            0x01,  # ATYP (IPv4)
+                            socket.inet_aton(host),  # IPv4 address
+                            port,  # Port
+                        )
+                        transport.sendto(
+                            udp_header + test_data, ("127.0.0.1", udp_relay_port)
+                        )
+                    else:
+                        transport.sendto(test_data, (host, port))
 
-                if data == test_data:
-                    success_count += 1
-            except (asyncio.TimeoutError, BlockingIOError):
-                continue
+                    data = await asyncio.wait_for(
+                        protocol.received_data.get(), timeout=0.5
+                    )
+                    if data == test_data:
+                        success_count += 1
+                except asyncio.TimeoutError:
+                    continue
 
-        if success_count < total_attempts / 2:
-            raise AssertionError(
-                f"UDP connection test failed: only {success_count}/{total_attempts} "
-                f"packets were successfully echoed"
-            )
+            if success_count < total_attempts / 2:
+                raise AssertionError(
+                    f"UDP connection test failed: only {success_count}/{total_attempts} "
+                    f"packets were successfully echoed"
+                )
+        finally:
+            transport.close()
     finally:
         sock.close()
         if tcp_sock:
