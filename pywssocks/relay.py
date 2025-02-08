@@ -11,10 +11,54 @@ from websockets.asyncio.connection import Connection
 _default_logger = logging.getLogger(__name__)
 
 
+class UDPProtocol(asyncio.DatagramProtocol):
+    """UDP protocol handler with send and receive queues"""
+
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        self.transport: Optional[socket.socket] = None
+        self.recv_queue = asyncio.Queue()
+        self._ready = asyncio.Event()
+        self._log = logger or _default_logger
+
+    def connection_made(self, transport: socket.socket):
+        self.transport = transport
+        self._ready.set()
+
+    def datagram_received(self, data, addr):
+        self.recv_queue.put_nowait((data, addr))
+
+    def error_received(self, exc):
+        logging.error(f"UDP Protocol error: {exc}")
+
+    def connection_lost(self, exc):
+        if exc:
+            logging.error(f"UDP connection lost with error: {exc}")
+        self._ready.clear()
+
+    async def wait_ready(self):
+        await self._ready.wait()
+
+    async def send(self, data, addr):
+        await self.wait_ready()
+        if self.transport:
+            self.transport.sendto(data, addr)
+
+    async def receive(self):
+        return await self.recv_queue.get()
+
+
 class Relay:
+    """A relay that handles stream transport between SOCKS5 and WebSocket"""
+
     def __init__(
         self, logger: Optional[logging.Logger] = None, buffer_size: int = 32768
     ):
+        """
+        Args:
+            logger: Optional logger instance for relay operations. If not provided,
+                   a default logger will be used.
+            buffer_size: Size of the buffer used for data transfer. Defaults to 32KB.
+        """
         self._log = logger or _default_logger
 
         self._buf_size = buffer_size
@@ -365,33 +409,33 @@ class Relay:
         self, websocket: Connection, udp_socket: socket.socket, channel_id: str
     ):
         """Handle UDP to WebSocket forwarding"""
-        loop = asyncio.get_running_loop()
-        while True:
-            data, addr = await loop.sock_recvfrom(
-                udp_socket,
-                min(self._buf_size, 65507),  # Max UDP packet size
-            )
-            if not data:  # Connection closed
-                break
 
-            msg = {
-                "type": "data",
-                "protocol": "udp",
-                "channel_id": channel_id,
-                "data": data.hex(),
-                "address": addr[0],
-                "port": addr[1],
-            }
-            await websocket.send(json.dumps(msg))
+        loop = asyncio.get_event_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            UDPProtocol, sock=udp_socket
+        )
+        try:
+            while True:
+                data, addr = await protocol.recv_queue.get()
+                msg = {
+                    "type": "data",
+                    "protocol": "udp",
+                    "channel_id": channel_id,
+                    "data": data.hex(),
+                    "address": addr[0],
+                    "port": addr[1],
+                }
+                await websocket.send(json.dumps(msg))
+        finally:
+            transport.close()
 
     async def _websocket_to_udp(self, udp_socket: socket.socket, queue: asyncio.Queue):
         """Handle WebSocket to UDP forwarding"""
-        loop = asyncio.get_running_loop()
         while True:
             msg_data = await queue.get()
             binary_data = bytes.fromhex(msg_data["data"])
             target_addr = (msg_data["target_addr"], msg_data["target_port"])
-            await loop.sock_sendto(udp_socket, binary_data, target_addr)
+            await self._sendto(udp_socket, binary_data, target_addr)
             self._log.debug(
                 f"Sent UDP data to: addr={target_addr} size={len(binary_data)}."
             )
@@ -588,57 +632,62 @@ class Relay:
         self, websocket: Connection, udp_socket: socket.socket, channel_id: str
     ):
         """Handle SOCKS UDP to WebSocket forwarding"""
-        loop = asyncio.get_running_loop()
-        while True:
-            data, addr = await loop.sock_recvfrom(
-                udp_socket,
-                min(self._buf_size, 65507),  # Max UDP packet size
-            )
 
-            self._udp_client_addrs[channel_id] = addr
+        loop = asyncio.get_event_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            UDPProtocol, sock=udp_socket
+        )
+        try:
+            while True:
+                data, addr = await protocol.recv_queue.get()
 
-            # Parse SOCKS UDP header
-            if len(data) > 3:  # Minimal UDP header
-                header = data[0:3]
-                atyp = data[3]
+                self._udp_client_addrs[channel_id] = addr
 
-                if atyp == 0x01:  # IPv4
-                    addr_size = 4
-                    addr_bytes = data[4:8]
-                    target_addr = socket.inet_ntoa(addr_bytes)
-                    port_bytes = data[8:10]
-                    target_port = int.from_bytes(port_bytes, "big")
-                    payload = data[10:]
-                elif atyp == 0x03:  # Domain
-                    addr_len = data[4]
-                    addr_bytes = data[5 : 5 + addr_len]
-                    target_addr = addr_bytes.decode()
-                    port_bytes = data[5 + addr_len : 7 + addr_len]
-                    target_port = int.from_bytes(port_bytes, "big")
-                    payload = data[7 + addr_len :]
+                # Parse SOCKS UDP header
+                if len(data) > 3:  # Minimal UDP header
+                    header = data[0:3]
+                    atyp = data[3]
+
+                    if atyp == 0x01:  # IPv4
+                        addr_size = 4
+                        addr_bytes = data[4:8]
+                        target_addr = socket.inet_ntoa(addr_bytes)
+                        port_bytes = data[8:10]
+                        target_port = int.from_bytes(port_bytes, "big")
+                        payload = data[10:]
+                    elif atyp == 0x03:  # Domain
+                        addr_len = data[4]
+                        addr_bytes = data[5 : 5 + addr_len]
+                        target_addr = addr_bytes.decode()
+                        port_bytes = data[5 + addr_len : 7 + addr_len]
+                        target_port = int.from_bytes(port_bytes, "big")
+                        payload = data[7 + addr_len :]
+                    else:
+                        self._log.debug(
+                            "Can not parse UDP packet from associated port."
+                        )
+                        continue
+
+                    msg = {
+                        "type": "data",
+                        "protocol": "udp",
+                        "channel_id": channel_id,
+                        "data": payload.hex(),
+                        "target_addr": target_addr,
+                        "target_port": target_port,
+                    }
+                    await websocket.send(json.dumps(msg))
+                    self._log.debug(
+                        f"Sent UDP data to WebSocket: channel={channel_id}, size={len(payload)}"
+                    )
                 else:
-                    self._log.debug("Can not parse UDP packet from associated port.")
+                    self._log.debug("UDP packet too small, ignoring.")
                     continue
-
-                msg = {
-                    "type": "data",
-                    "protocol": "udp",
-                    "channel_id": channel_id,
-                    "data": payload.hex(),
-                    "target_addr": target_addr,
-                    "target_port": target_port,
-                }
-                await websocket.send(json.dumps(msg))
-                self._log.debug(
-                    f"Sent UDP data to WebSocket: channel={channel_id}, size={len(payload)}"
-                )
-            else:
-                self._log.debug("UDP packet too small, ignoring.")
-                continue
+        finally:
+            transport.close()
 
     async def _websocket_to_socks_udp(self, udp_socket: socket.socket, channel_id: str):
         """Handle WebSocket to SOCKS UDP forwarding"""
-        loop = asyncio.get_running_loop()
         queue = self._message_queues[channel_id]
         while True:
             msg_data = await queue.get()
@@ -672,7 +721,16 @@ class Relay:
                         f"Dropping UDP packet: no socks client address available."
                     )
                     continue
-            await loop.sock_sendto(udp_socket, bytes(udp_header), addr)
+            await self._sendto(udp_socket, bytes(udp_header), addr)
             self._log.debug(
                 f"Sent UDP data to target: addr={addr} size={len(binary_data)}"
             )
+
+    async def _sendto(self, sock: socket.socket, data, address):
+        loop = asyncio.get_running_loop()
+
+        # Use fallback for Python <= 3.10
+        if hasattr(loop, "sock_sendto"):
+            return await loop.sock_sendto(sock, data, address)
+        else:
+            return sock.sendto(data, address)
