@@ -302,6 +302,7 @@ class WSSocksClient(Relay):
                     self.disconnected.set()
         except KeyboardInterrupt:
             self._log.info("Received keyboard interrupt, shutting down...")
+            return
 
     async def _start_reverse(self) -> None:
         """Connect to WebSocket server in reverse proxy mode"""
