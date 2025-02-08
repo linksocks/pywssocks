@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  pypi-build:
     runs-on: ubuntu-latest
     steps:
       -
@@ -38,7 +38,7 @@ jobs:
           name: "dist"
           path: "dist/"
 
-  publish:
+  pypi-publish:
     needs: [build]
     runs-on: ubuntu-latest
     permissions:
