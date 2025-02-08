@@ -39,7 +39,7 @@ jobs:
           path: "dist/"
 
   pypi-publish:
-    needs: [build]
+    needs: [pypi-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
