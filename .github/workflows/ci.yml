@@ -5,7 +5,10 @@ on:
   push:
     paths-ignore:
       - "*.md"
+  merge_group:
+    types: [checks_requested]
   pull_request:
+    types: [review_requested]
     paths-ignore:
       - "*.md"
 
