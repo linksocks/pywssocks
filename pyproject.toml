@@ -50,3 +50,6 @@ namespaces = false
 
 [tool.pytest.ini_options]
 log_cli_level = "DEBUG"
+
+[tool.coverage.run]
+omit = ["pywssocks/cli.py", "pywssocks/__init__.py"]
