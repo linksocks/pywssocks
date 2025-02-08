@@ -187,7 +187,7 @@ def test_cli_forward_reconnect(website):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
+
         try:
             assert wait_for_output(re_server_process, SERVER_START_MSG)
 
@@ -235,7 +235,7 @@ def test_cli_reverse_reconnect(website):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        
+
         try:
             assert wait_for_output(re_client_process, CLIENT_START_MSG)
 
