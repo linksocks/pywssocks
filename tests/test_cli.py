@@ -182,18 +182,23 @@ def test_cli_forward_reconnect(website):
         assert wait_for_output(client_process, "retrying", timeout=6)
 
         # Restart server
-        server_process = subprocess.Popen(
+        re_server_process = subprocess.Popen(
             ["pywssocks", "server", "-t", "test_token", "-P", str(ws_port)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        assert wait_for_output(server_process, SERVER_START_MSG)
+        
+        try:
+            assert wait_for_output(re_server_process, SERVER_START_MSG)
 
-        # Wait for reconnection
-        assert wait_for_output(client_process, CLIENT_START_MSG, timeout=10)
+            # Wait for reconnection
+            assert wait_for_output(client_process, CLIENT_START_MSG, timeout=10)
 
-        # Test connection
-        assert_web_connection(website, socks_port)
+            # Test connection
+            assert_web_connection(website, socks_port)
+        finally:
+            re_server_process.terminate()
+            re_server_process.wait()
 
 
 def test_cli_reverse_basic(website):
@@ -217,7 +222,7 @@ def test_cli_reverse_reconnect(website):
         assert wait_for_output(server_process, "closed", timeout=6)
 
         # Restart client
-        client_process = subprocess.Popen(
+        re_client_process = subprocess.Popen(
             [
                 "pywssocks",
                 "client",
@@ -230,10 +235,15 @@ def test_cli_reverse_reconnect(website):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        assert wait_for_output(client_process, CLIENT_START_MSG)
+        
+        try:
+            assert wait_for_output(re_client_process, CLIENT_START_MSG)
 
-        # Test connection
-        assert_web_connection(website, socks_port)
+            # Test connection
+            assert_web_connection(website, socks_port)
+        finally:
+            re_client_process.terminate()
+            re_client_process.wait()
 
 
 @pytest.mark.cli_features
