@@ -422,7 +422,10 @@ class WSSocksServer(Relay):
         except Exception as e:
             self._log.error(f"WebSocket processing error: {e.__class__.__name__}: {e}.")
         finally:
-            self._log.info(f"Client {client_id} disconnected.")
+            if client_id:
+                self._log.info(f"Client {client_id} disconnected.")
+            else:
+                self._log.info(f"Client (unauthenticated) disconnected.")
             await self._cleanup_connection(client_id, token)
 
     async def _cleanup_connection(
@@ -565,11 +568,18 @@ class WSSocksServer(Relay):
         except asyncio.CancelledError:
             return
         finally:
-            self._log.info(f"SOCKS5 server stopped on {self._socks_host}:{socks_port}.")
+            # Required for Python 3.8:
+            #   bpo-85489: sock_accept() does not remove server socket reader on cancellation
+            #         url: https://bugs.python.org/issue41317
+            try:
+                loop.remove_reader(socks_server.fileno())
+            except:
+                pass
             try:
                 socks_server.close()
             except:
                 pass
+            self._log.info(f"SOCKS5 server stopped on {self._socks_host}:{socks_port}.")
 
     async def _process_request(self, connection: ServerConnection, request: Request):
         """Process HTTP requests before WebSocket handshake"""
