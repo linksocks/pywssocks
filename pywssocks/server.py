@@ -352,7 +352,7 @@ class WSSocksServer(Relay):
         client_id = None
         token = None
         socks_port = None
-        
+
         try:
             # Wait for authentication message
             auth_message = await websocket.recv()
@@ -383,29 +383,38 @@ class WSSocksServer(Relay):
                         )
 
                 self._clients[client_id] = websocket
-                await websocket.send(json.dumps({"type": "auth_response", "success": True}))
+                await websocket.send(
+                    json.dumps({"type": "auth_response", "success": True})
+                )
                 self._log.info(f"Reverse client {client_id} authenticated")
 
             elif reverse == False and token in self._forward_tokens:  # forward proxy
                 client_id = uuid4()  # Generate UUID after successful auth
                 self._forward_clients[client_id] = websocket
-                await websocket.send(json.dumps({"type": "auth_response", "success": True}))
+                await websocket.send(
+                    json.dumps({"type": "auth_response", "success": True})
+                )
                 self._log.info(f"Forward client {client_id} authenticated")
 
             else:
-                await websocket.send(json.dumps({"type": "auth_response", "success": False}))
+                await websocket.send(
+                    json.dumps({"type": "auth_response", "success": False})
+                )
                 await websocket.close(1008, "Invalid token")
                 return
 
             # Only proceed with message handling if authentication was successful
-            receiver_task = asyncio.create_task(self._message_dispatcher(websocket, client_id))
-            heartbeat_task = asyncio.create_task(self._ws_heartbeat(websocket, client_id))
+            receiver_task = asyncio.create_task(
+                self._message_dispatcher(websocket, client_id)
+            )
+            heartbeat_task = asyncio.create_task(
+                self._ws_heartbeat(websocket, client_id)
+            )
 
             tasks = [receiver_task, heartbeat_task]
             try:
                 done, pending = await asyncio.wait(
-                    tasks, 
-                    return_when=asyncio.FIRST_COMPLETED
+                    tasks, return_when=asyncio.FIRST_COMPLETED
                 )
                 for task in done:
                     try:
@@ -419,7 +428,6 @@ class WSSocksServer(Relay):
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
-                
 
         except Exception as e:
             self._log.error(f"WebSocket processing error: {e.__class__.__name__}: {e}.")
@@ -552,7 +560,7 @@ class WSSocksServer(Relay):
         """SOCKS server startup function"""
 
         socks_handler_tasks = set()  # Track SOCKS request handler tasks
-        
+
         try:
             socks_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             socks_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -587,7 +595,7 @@ class WSSocksServer(Relay):
             for task in socks_handler_tasks:
                 task.cancel()
             await asyncio.gather(*socks_handler_tasks, return_exceptions=True)
-            
+
             # Required for Python 3.8:
             #   bpo-85489: sock_accept() does not remove server socket reader on cancellation
             #         url: https://bugs.python.org/issue41317
