@@ -269,13 +269,18 @@ class WSSocksClient(Relay):
                             done, pending = await asyncio.wait(
                                 tasks, return_when=asyncio.FIRST_COMPLETED
                             )
-                            for task in pending:
-                                task.cancel()
+                            for task in done:
+                                try:
+                                    task.result()
+                                except Exception as e:
+                                    if not isinstance(e, asyncio.CancelledError):
+                                        self._log.error(
+                                            f"Task failed with error: {e.__class__.__name__}: {e}."
+                                        )
                         finally:
                             for task in tasks:
-                                if not task.done():
-                                    task.cancel()
-                        await asyncio.gather(*pending, return_exceptions=True)
+                                task.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
                 except ConnectionClosed:
                     if self._reconnect:
                         self._log.error(
@@ -339,26 +344,22 @@ class WSSocksClient(Relay):
                         self.connected.set()
                         self.disconnected.clear()
 
-                        # Wait for first task to complete (may be due to error or connection close)
-                        done, pending = await asyncio.wait(
-                            tasks, return_when=asyncio.FIRST_COMPLETED
-                        )
-
-                        # Cancel other running tasks
-                        for task in pending:
-                            task.cancel()
-
-                        # Wait for cancelled tasks to complete
-                        await asyncio.gather(*pending, return_exceptions=True)
-
-                        # Check if any tasks threw exceptions
-                        for task in done:
-                            try:
-                                task.result()
-                            except Exception as e:
-                                self._log.error(
-                                    f"Task failed with error: {e.__class__.__name__}: {e}."
-                                )
+                        try:
+                            done, pending = await asyncio.wait(
+                                tasks, return_when=asyncio.FIRST_COMPLETED
+                            )
+                            for task in done:
+                                try:
+                                    task.result()
+                                except Exception as e:
+                                    if not isinstance(e, asyncio.CancelledError):
+                                        self._log.error(
+                                            f"Task failed with error: {e.__class__.__name__}: {e}."
+                                        )
+                        finally:
+                            for task in tasks:
+                                task.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
 
                 except ConnectionClosed:
                     if self._reconnect:
