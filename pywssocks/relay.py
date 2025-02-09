@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 import asyncio
 import logging
 import socket
@@ -66,12 +66,6 @@ class Relay:
         # Map channel_id to message queues
         self._message_queues: Dict[str, asyncio.Queue] = {}
 
-        # Map channel_id to TCP socket objects
-        self._channels: Dict[str, socket.socket] = {}
-
-        # Map channel_id to associated UDP socket objects
-        self._udp_channels: Dict[str, socket.socket] = {}
-
         # Map channel_id to associated UDP client hostname and port
         self._udp_client_addrs: Dict[str, str] = {}
 
@@ -117,8 +111,7 @@ class Relay:
     ) -> None:
         """Handle SOCKS5 client request"""
 
-        client_id = id(websocket)
-        connect_id = f"{client_id}_{str(uuid.uuid4())}"
+        connect_id = str(uuid.uuid4())
         self._log.debug(f"Starting SOCKS request handling for connect_id: {connect_id}")
 
         try:
@@ -262,26 +255,29 @@ class Relay:
                 udp_socket.bind(("127.0.0.1", 0))  # Bind to random port
                 udp_socket.setblocking(False)
 
-                # Get the UDP socket's bound address and port
-                _, bound_port = udp_socket.getsockname()
+                try:
+                    # Get the UDP socket's bound address and port
+                    _, bound_port = udp_socket.getsockname()
 
-                # Send UDP binding information back to SOCKS client
-                # Use the same IP as the TCP connection for the response
-                bind_ip = socket.inet_aton("127.0.0.1")
-                bind_port_bytes = struct.pack("!H", bound_port)
-                reply = (
-                    struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01)
-                    + bind_ip
-                    + bind_port_bytes
-                )
+                    # Send UDP binding information back to SOCKS client
+                    # Use the same IP as the TCP connection for the response
+                    bind_ip = socket.inet_aton("127.0.0.1")
+                    bind_port_bytes = struct.pack("!H", bound_port)
+                    reply = (
+                        struct.pack("!BBBB", 0x05, 0x00, 0x00, 0x01)
+                        + bind_ip
+                        + bind_port_bytes
+                    )
 
-                loop = asyncio.get_event_loop()
-                await loop.sock_sendall(socks_socket, reply)
-                self._log.debug(f"UDP association established on port {bound_port}")
+                    loop = asyncio.get_event_loop()
+                    await loop.sock_sendall(socks_socket, reply)
+                    self._log.debug(f"UDP association established on port {bound_port}")
 
-                await self._handle_socks_udp_forward(
-                    websocket, socks_socket, udp_socket, response_data["channel_id"]
-                )
+                    await self._handle_socks_udp_forward(
+                        websocket, socks_socket, udp_socket, response_data["channel_id"]
+                    )
+                finally:
+                    udp_socket.close()
         except Exception as e:
             self._log.error(
                 f"Error handling SOCKS request: {e.__class__.__name__}: {e}."
@@ -294,7 +290,7 @@ class Relay:
                 pass
         finally:
             socks_socket.close()
-            if connect_id and connect_id in self._message_queues:
+            if connect_id in self._message_queues:
                 del self._message_queues[connect_id]
 
     async def _handle_network_connection(
@@ -309,12 +305,9 @@ class Relay:
     async def _handle_tcp_connection(self, websocket: Connection, request_data: dict):
         """Connect to remote tcp socket send response to websocket."""
 
-        # channel_id is the message_queue index on our side
         channel_id = str(uuid.uuid4())
-
-        # connect_id is the message_queue index on the connector side
         connect_id = request_data["connect_id"]
-
+        remote_socket = None
         loop = asyncio.get_running_loop()
 
         try:
@@ -340,17 +333,16 @@ class Relay:
                     except socket.gaierror as e:
                         raise Exception(f"Failed to resolve address: {e}")
 
-            remote_sock = socket.socket(addr_family, socket.SOCK_STREAM)
-            remote_sock.setblocking(False)
+            remote_socket = socket.socket(addr_family, socket.SOCK_STREAM)
+            remote_socket.setblocking(False)
             self._log.debug(
                 f"Attempting TCP connection to: {request_data['address']}:{request_data['port']}"
             )
             await loop.sock_connect(
-                remote_sock, (request_data["address"], request_data["port"])
+                remote_socket, (request_data["address"], request_data["port"])
             )
 
             self._message_queues[channel_id] = asyncio.Queue()
-            self._channels[channel_id] = remote_sock
 
             response_data = {
                 "type": "connect_response",
@@ -361,7 +353,7 @@ class Relay:
             }
             await websocket.send(json.dumps(response_data))
 
-            await self._handle_remote_tcp_forward(websocket, remote_sock, channel_id)
+            await self._handle_remote_tcp_forward(websocket, remote_socket, channel_id)
 
         except Exception as e:
             self._log.error(
@@ -375,35 +367,45 @@ class Relay:
             }
             await websocket.send(json.dumps(response_data))
 
+        finally:
+            if remote_socket:
+                remote_socket.close()
+            if channel_id in self._message_queues:
+                del self._message_queues[channel_id]
+
     async def _handle_udp_connection(self, websocket: Connection, request_data: dict):
         """Connect to remote udp socket send response to websocket."""
 
-        # channel_id is the message_queue index on our side
         channel_id = str(uuid.uuid4())
-
-        # connect_id is the message_queue index on the connector side
         connect_id = request_data["connect_id"]
+        local_socket = None
 
-        # Create local UDP socket
-        local_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        local_socket.bind(("0.0.0.0", 0))  # Bind to random port
-        local_socket.setblocking(False)
+        try:
+            # Create local UDP socket
+            local_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            local_socket.bind(("0.0.0.0", 0))  # Bind to random port
+            local_socket.setblocking(False)
 
-        # Get the UDP socket's bound address and port
-        _, bound_port = local_socket.getsockname()
+            # Get the UDP socket's bound address and port
+            _, bound_port = local_socket.getsockname()
 
-        self._message_queues[channel_id] = asyncio.Queue()
+            self._message_queues[channel_id] = asyncio.Queue()
 
-        response_data = {
-            "type": "connect_response",
-            "success": True,
-            "channel_id": channel_id,
-            "connect_id": connect_id,
-            "protocol": "udp",
-        }
-        await websocket.send(json.dumps(response_data))
+            response_data = {
+                "type": "connect_response",
+                "success": True,
+                "channel_id": channel_id,
+                "connect_id": connect_id,
+                "protocol": "udp",
+            }
+            await websocket.send(json.dumps(response_data))
 
-        await self._handle_remote_udp_forward(websocket, local_socket, channel_id)
+            await self._handle_remote_udp_forward(websocket, local_socket, channel_id)
+        finally:
+            if local_socket:
+                local_socket.close()
+            if channel_id in self._message_queues:
+                del self._message_queues[channel_id]
 
     async def _udp_to_websocket(
         self, websocket: Connection, udp_socket: socket.socket, channel_id: str
@@ -445,35 +447,31 @@ class Relay:
     ):
         """Read from remote udp socket and send to websocket, and vice versa."""
 
+        queue = self._message_queues[channel_id]
+
+        # Create tasks for both directions of communication
+        udp_to_ws = asyncio.create_task(
+            self._udp_to_websocket(websocket, local_socket, channel_id)
+        )
+        ws_to_udp = asyncio.create_task(self._websocket_to_udp(local_socket, queue))
+
+        tasks = [udp_to_ws, ws_to_udp]
         try:
-            loop = asyncio.get_running_loop()
-            queue = self._message_queues[channel_id]
-
-            # Create tasks for both directions of communication
-            udp_to_ws = asyncio.create_task(
-                self._udp_to_websocket(websocket, local_socket, channel_id)
-            )
-            ws_to_udp = asyncio.create_task(self._websocket_to_udp(local_socket, queue))
-
-            # Wait for either task to complete (or fail)
             done, pending = await asyncio.wait(
-                [udp_to_ws, ws_to_udp], return_when=asyncio.FIRST_COMPLETED
+                tasks, return_when=asyncio.FIRST_COMPLETED
             )
-
-            # Cancel the remaining task
-            for task in pending:
-                task.cancel()
+            for task in done:
                 try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
+                    task.result()
+                except Exception as e:
+                    if not isinstance(e, asyncio.CancelledError):
+                        self._log.error(
+                            f"Task failed with error: {e.__class__.__name__}: {e}."
+                        )
         finally:
-            local_socket.close()
-            if channel_id in self._udp_channels:
-                del self._udp_channels[channel_id]
-            if channel_id in self._message_queues:
-                del self._message_queues[channel_id]
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _tcp_to_websocket(
         self, websocket: Connection, tcp_socket: socket.socket, channel_id: str
@@ -510,36 +508,31 @@ class Relay:
     ):
         """Read from remote tcp socket and send to websocket, and vice versa."""
 
+        queue = self._message_queues[channel_id]
+
+        # Create tasks for both directions of communication
+        tcp_to_ws = asyncio.create_task(
+            self._tcp_to_websocket(websocket, remote_socket, channel_id)
+        )
+        ws_to_tcp = asyncio.create_task(self._websocket_to_tcp(remote_socket, queue))
+
+        tasks = [tcp_to_ws, ws_to_tcp]
         try:
-            queue = self._message_queues[channel_id]
-
-            # Create tasks for both directions of communication
-            tcp_to_ws = asyncio.create_task(
-                self._tcp_to_websocket(websocket, remote_socket, channel_id)
-            )
-            ws_to_tcp = asyncio.create_task(
-                self._websocket_to_tcp(remote_socket, queue)
-            )
-
-            # Wait for either task to complete (or fail)
             done, pending = await asyncio.wait(
-                [tcp_to_ws, ws_to_tcp], return_when=asyncio.FIRST_COMPLETED
+                tasks, return_when=asyncio.FIRST_COMPLETED
             )
-
-            # Cancel the remaining task
-            for task in pending:
-                task.cancel()
+            for task in done:
                 try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
+                    task.result()
+                except Exception as e:
+                    if not isinstance(e, asyncio.CancelledError):
+                        self._log.error(
+                            f"Task failed with error: {e.__class__.__name__}: {e}."
+                        )
         finally:
-            remote_socket.close()
-            if channel_id in self._channels:
-                del self._channels[channel_id]
-            if channel_id in self._message_queues:
-                del self._message_queues[channel_id]
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _handle_socks_tcp_forward(
         self, websocket: Connection, socks_socket: socket.socket, channel_id: str
@@ -560,21 +553,27 @@ class Relay:
                 self._websocket_to_tcp(socks_socket, message_queue)
             )
 
-            # Wait for either task to complete (or fail)
-            done, pending = await asyncio.wait(
-                [socks_to_ws, ws_to_socks], return_when=asyncio.FIRST_COMPLETED
-            )
-
-            # Cancel the remaining task
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+            tasks = [socks_to_ws, ws_to_socks]
+            try:
+                done, pending = await asyncio.wait(
+                    [socks_to_ws, ws_to_socks], return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    try:
+                        task.result()
+                    except Exception as e:
+                        if not isinstance(e, asyncio.CancelledError):
+                            self._log.error(
+                                f"Task failed with error: {e.__class__.__name__}: {e}."
+                            )
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         finally:
-            socks_socket.close()
+            if channel_id in self._message_queues:
+                del self._message_queues[channel_id]
 
     async def _handle_socks_udp_forward(
         self,
@@ -586,8 +585,8 @@ class Relay:
         """Read from websocket and send to a associated UDP socket, and vice versa."""
         try:
             # Store UDP socket and message queue
-            self._message_queues[channel_id] = asyncio.Queue()
-            self._udp_channels[channel_id] = udp_socket
+            message_queue = asyncio.Queue()
+            self._message_queues[channel_id] = message_queue
 
             # Create tasks for monitoring TCP connection and handling UDP data
             tcp_monitor = asyncio.create_task(self._monitor_socks_tcp(socks_socket))
@@ -598,27 +597,30 @@ class Relay:
                 self._websocket_to_socks_udp(udp_socket, channel_id)
             )
 
-            # Wait for any task to complete (or fail)
-            done, pending = await asyncio.wait(
-                [tcp_monitor, socks_udp_to_ws, ws_to_socks_udp],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            # Cancel remaining tasks
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-
+            tasks = [tcp_monitor, socks_udp_to_ws, ws_to_socks_udp]
+            try:
+                done, pending = await asyncio.wait(
+                    tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    try:
+                        task.result()
+                    except Exception as e:
+                        if not isinstance(e, asyncio.CancelledError):
+                            self._log.error(
+                                f"Task failed with error: {e.__class__.__name__}: {e}."
+                            )
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                
         finally:
-            udp_socket.close()
-            socks_socket.close()
-            if channel_id in self._udp_channels:
-                del self._udp_channels[channel_id]
             if channel_id in self._message_queues:
                 del self._message_queues[channel_id]
+            if channel_id in self._udp_client_addrs:
+                del self._udp_client_addrs[channel_id]
 
     async def _monitor_socks_tcp(self, socks_socket: socket.socket):
         """Monitor TCP connection for closure"""
