@@ -462,15 +462,6 @@ class WSSocksServer(Relay):
         if client_id in self._clients:
             del self._clients[client_id]
 
-        # Clean up channel message queues
-        queues_to_remove = [
-            queue_id
-            for queue_id in self._message_queues
-            if queue_id.startswith(f"{client_id}_")
-        ]
-        for queue_id in queues_to_remove:
-            del self._message_queues[queue_id]
-
         self._log.debug(f"Cleaned up resources for client {client_id}.")
 
     async def _ws_heartbeat(self, websocket: ServerConnection, client_id: UUID) -> None:
