@@ -615,7 +615,7 @@ class Relay:
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
-                
+
         finally:
             if channel_id in self._message_queues:
                 del self._message_queues[channel_id]
