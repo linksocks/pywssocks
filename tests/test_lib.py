@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from typing import Iterable, List
+from typing import Iterable
 import logging
 import pytest
 

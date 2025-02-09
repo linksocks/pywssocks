@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 import pytest
 import socket
 
@@ -64,7 +65,9 @@ def local_udp_echo_server():
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
-
+    
+    time.sleep(1)
+    
     yield f"127.0.0.1:{udp_port}"
 
 
@@ -122,6 +125,8 @@ def local_http_server():
     server_thread.daemon = True
     server_thread.start()
 
+    time.sleep(1)
+
     yield f"http://127.0.0.1:{http_port}/generate_204"
 
 
@@ -159,5 +164,7 @@ def local_http_server_v6():
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
+    
+    time.sleep(1)
 
     yield f"http://[::1]:{http_port}/generate_204"
