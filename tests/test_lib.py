@@ -550,10 +550,10 @@ def test_socket_manager_close(caplog, website):
                         break
                 else:
                     raise RuntimeError("token not closed after grace period")
-                
+
                 token, socks_port = server.add_reverse_token(port=socks_port)
                 assert token
-                
+
                 # Start another client and test
                 async with reverse_client(server._ws_port, token, idx=2) as _:
                     await async_assert_web_connection(website, socks_port)
@@ -563,7 +563,6 @@ def test_socket_manager_close(caplog, website):
                             break
                     else:
                         raise RuntimeError("no new socket allocated")
-            
 
     return asyncio.run(asyncio.wait_for(_main(), 30))
 
