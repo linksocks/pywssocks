@@ -10,6 +10,8 @@ This tool allows you to securely expose SOCKS proxy services under Web Applicati
 
 ![Main Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/abstract.svg)
 
+For golang version, please check [zetxtech/wssocks](https://github.com/zetxtech/wssocks).
+
 ## Features
 
 1. Both client and server modes, supporting command-line usage or library integration.
