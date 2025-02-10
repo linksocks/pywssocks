@@ -16,6 +16,137 @@ from pywssocks.common import PortPool
 from pywssocks.relay import Relay
 from pywssocks import __version__
 
+_default_logger = logging.getLogger(__name__)
+
+
+class SocketManager:
+    """Manages server sockets with reuse capability"""
+
+    def __init__(
+        self, host: str, grace: float = 30, logger: Optional[logging.Logger] = None
+    ):
+        """
+        Args:
+            host: Listen address for servers
+        """
+        self._host = host
+        self._grace = grace
+        self._sockets: dict[int, tuple[socket.socket, float, int]] = (
+            {}
+        )  # port -> (socket, timestamp, refs)
+        self._lock = asyncio.Lock()
+        self._cleanup_tasks: set[asyncio.Task] = set()
+        self._log = logger or _default_logger
+
+    async def get_socket(self, port: int) -> socket.socket:
+        """Get a socket for the specified port, reusing existing one if available
+
+        Args:
+            port: Port number for the socket
+
+        Returns:
+            socket.socket: Socket bound to the specified port
+        """
+        async with self._lock:
+            # Check if we have an existing socket
+            if port in self._sockets:
+                sock, timestamp, refs = self._sockets[port]
+                self._sockets[port] = (sock, timestamp, refs + 1)
+                sock.listen(1)
+                self._log.debug(
+                    f"Reusing existing socket for port {port} (refs: {refs + 1})"
+                )
+                return sock
+
+            # Create new socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind((self._host, port))
+            sock.listen(5)
+            sock.setblocking(False)
+
+            self._sockets[port] = (sock, 0, 1)
+            self._log.debug(f"New socket allocated on {self._host}:{port}")
+            return sock
+
+    async def release_socket(self, port: int) -> None:
+        """Release a socket, starting 30s grace period for potential reuse
+
+        Args:
+            port: Port number of the socket to release
+        """
+        async with self._lock:
+            if port not in self._sockets:
+                self._log.warning(
+                    f"Attempted to release non-existent socket on port {port}"
+                )
+                return
+
+            sock, _, refs = self._sockets[port]
+            refs -= 1
+
+            if refs <= 0:
+                self._log.debug(f"Starting grace period for socket on port {port}")
+                sock.listen(0)
+                # Start grace period
+                self._sockets[port] = (sock, asyncio.get_event_loop().time(), 0)
+                task = asyncio.create_task(self._cleanup_socket(port))
+                self._cleanup_tasks.add(task)
+                task.add_done_callback(self._cleanup_tasks.discard)
+            else:
+                self._log.debug(f"Released socket on port {port}.")
+                self._sockets[port] = (sock, 0, refs)
+
+    async def _close_socket(self, sock: socket.socket) -> None:
+        """Close a single socket safely."""
+
+        loop = asyncio.get_running_loop()
+        # Required for Python 3.8:
+        #   bpo-85489: sock_accept() does not remove server socket reader on cancellation
+        #         url: https://bugs.python.org/issue41317
+        try:
+            loop.remove_reader(sock.fileno())
+        except:
+            pass
+        try:
+            sock.close()
+        except:
+            pass
+
+    async def _cleanup_socket(self, port: int) -> None:
+        """Clean up socket after grace period if not reused"""
+
+        await asyncio.sleep(self._grace)  # Grace period
+
+        async with self._lock:
+            if port not in self._sockets:
+                return
+
+            sock, timestamp, refs = self._sockets[port]
+            # Only close if still in grace period (timestamp > 0) and no new refs
+            if refs == 0 and timestamp > 0:
+                self._log.debug(
+                    f"Cleaning up unused socket on port {port} after grace period"
+                )
+                await self._close_socket(sock)
+                del self._sockets[port]
+
+    async def close(self) -> None:
+        """Close all sockets and cancel cleanup tasks."""
+        self._log.debug("Closing all managed sockets")
+        async with self._lock:
+            # Cancel all cleanup tasks first
+            for task in self._cleanup_tasks:
+                task.cancel()
+
+            # Wait for cancellation to complete
+            if self._cleanup_tasks:
+                await asyncio.gather(*self._cleanup_tasks, return_exceptions=True)
+
+            # Close all sockets
+            for port, (sock, _, _) in list(self._sockets.items()):
+                await self._close_socket(sock)
+                del self._sockets[port]
+
 
 class WSSocksServer(Relay):
     """
@@ -35,6 +166,7 @@ class WSSocksServer(Relay):
         socks_host: str = "127.0.0.1",
         socks_port_pool: Union[PortPool, Iterable[int]] = range(1024, 10240),
         socks_wait_client: bool = True,
+        socks_grace: float = 30.0,
         logger: Optional[logging.Logger] = None,
         **kw,
     ) -> None:
@@ -46,6 +178,8 @@ class WSSocksServer(Relay):
             socks_port_pool: SOCKS5 port pool for reverse proxy
             socks_wait_client: Wait for client connection before starting the SOCKS server,
                 otherwise start the SOCKS server when the reverse proxy token is added.
+            socks_grace: Grace time in seconds before stopping the SOCKS server after token
+                removal to avoid port re-allocation.
             logger: Custom logger instance
         """
 
@@ -96,6 +230,11 @@ class WSSocksServer(Relay):
 
         # Store all connected forward proxy clients, {client_id: websocket}
         self._forward_clients: dict[UUID, ServerConnection] = {}
+
+        # Manage SOCKS server port allocation
+        self._socket_manager = SocketManager(
+            socks_host, grace=socks_grace, logger=self._log
+        )
 
     def add_reverse_token(
         self,
@@ -258,20 +397,23 @@ class WSSocksServer(Relay):
             await self._handle_pending_token(token)
         self._pending_tokens = []
 
-        async with serve(
-            self._handle_websocket,
-            self._ws_host,
-            self._ws_port,
-            process_request=self._process_request,
-            logger=self._log.getChild("ws"),
-        ):
-            self._log.info(
-                f"Pywssocks Server {__version__} started on: "
-                f"ws://{self._ws_host}:{self._ws_port}"
-            )
-            self._log.info(f"Waiting for clients to connect.")
-            self.ready.set()
-            await asyncio.Future()  # Keep server running
+        try:
+            async with serve(
+                self._handle_websocket,
+                self._ws_host,
+                self._ws_port,
+                process_request=self._process_request,
+                logger=self._log.getChild("ws"),
+            ):
+                self._log.info(
+                    f"Pywssocks Server {__version__} started on: "
+                    f"ws://{self._ws_host}:{self._ws_port}"
+                )
+                self._log.info(f"Waiting for clients to connect.")
+                self.ready.set()
+                await asyncio.Future()  # Keep server running
+        finally:
+            await self._socket_manager.close()
 
     async def _get_next_websocket(self, token: str) -> Optional[ServerConnection]:
         """Get next available WebSocket connection using round-robin"""
@@ -553,13 +695,10 @@ class WSSocksServer(Relay):
         socks_handler_tasks = set()  # Track SOCKS request handler tasks
 
         try:
-            socks_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            socks_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            socks_server.bind((self._socks_host, socks_port))
-            socks_server.listen(5)
-            socks_server.setblocking(False)
-
-            self._log.info(f"SOCKS5 server started on {self._socks_host}:{socks_port}.")
+            socks_server = await self._socket_manager.get_socket(socks_port)
+            self._log.info(
+                f"SOCKS5 server socket allocated on {self._socks_host}:{socks_port}"
+            )
 
             loop = asyncio.get_event_loop()
             if ready_event:
@@ -587,18 +726,11 @@ class WSSocksServer(Relay):
                 task.cancel()
             await asyncio.gather(*socks_handler_tasks, return_exceptions=True)
 
-            # Required for Python 3.8:
-            #   bpo-85489: sock_accept() does not remove server socket reader on cancellation
-            #         url: https://bugs.python.org/issue41317
-            try:
-                loop.remove_reader(socks_server.fileno())
-            except:
-                pass
-            try:
-                socks_server.close()
-            except:
-                pass
-            self._log.info(f"SOCKS5 server stopped on {self._socks_host}:{socks_port}.")
+            # Release the socket (starts grace period)
+            await self._socket_manager.release_socket(socks_port)
+            self._log.info(
+                f"SOCKS5 server released on {self._socks_host}:{socks_port}."
+            )
 
     async def _process_request(self, connection: ServerConnection, request: Request):
         """Process HTTP requests before WebSocket handshake"""
