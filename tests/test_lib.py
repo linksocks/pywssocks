@@ -225,11 +225,8 @@ def test_forward_remove_token(caplog, website):
 
 def test_reverse_remove_token(caplog, website):
     async def _main():
-        async with reverse_proxy(pool=[get_free_port() for _ in range(2)]) as (
-            server,
-            client,
-            socks_port,
-        ):
+        pool = [get_free_port() for _ in range(2)]
+        async with reverse_proxy(pool=pool) as (server, client, socks_port):
             # 2 ports available, token 2 can not be allocated
             token1, port1 = server.add_reverse_token(f"<token1>")
             assert port1 is not None
@@ -531,5 +528,78 @@ def test_http_access(caplog):
                 text = response.text
                 assert "is running" in text
                 assert response.status_code == 200
+
+    return asyncio.run(asyncio.wait_for(_main(), 30))
+
+
+def test_socket_manager_close(caplog, website):
+    async def _main():
+        async with reverse_server(token="<token>", socks_grace=1) as (
+            server,
+            server_task,
+            ws_port,
+            token,
+            socks_port,
+        ):
+            async with reverse_client(ws_port, token, idx=1) as (client1, client1_task):
+                server.remove_token("<token>")
+                await asyncio.wait_for(client1_task, 3)
+                await asyncio.sleep(2)
+                for record in caplog.records:
+                    if "after grace period" in record.message:
+                        break
+                else:
+                    raise RuntimeError("token not closed after grace period")
+                
+                token, socks_port = server.add_reverse_token(port=socks_port)
+                assert token
+                
+                # Start another client and test
+                async with reverse_client(server._ws_port, token, idx=2) as _:
+                    await async_assert_web_connection(website, socks_port)
+
+                    for record in caplog.records:
+                        if "New socket allocated" in record.message:
+                            break
+                    else:
+                        raise RuntimeError("no new socket allocated")
+            
+
+    return asyncio.run(asyncio.wait_for(_main(), 30))
+
+
+def test_socket_manager_reuse(caplog, website):
+    async def _main():
+        async with reverse_server(token="<token>") as (
+            server,
+            server_task,
+            ws_port,
+            token,
+            socks_port,
+        ):
+            async with reverse_client(ws_port, token, idx=1) as (client1, client1_task):
+
+                for record in caplog.records:
+                    if "New socket allocated" in record.message:
+                        break
+                else:
+                    raise RuntimeError("no new socket allocated")
+
+                server.remove_token("<token>")
+                await asyncio.wait_for(client1_task, 3)
+                await asyncio.sleep(1)
+
+                token, socks_port = server.add_reverse_token(port=socks_port)
+                assert token
+
+                # Start another client and test
+                async with reverse_client(server._ws_port, token, idx=2) as _:
+                    await async_assert_web_connection(website, socks_port)
+
+                    for record in caplog.records:
+                        if "Reusing existing socket" in record.message:
+                            break
+                    else:
+                        raise RuntimeError("socket not reused")
 
     return asyncio.run(asyncio.wait_for(_main(), 30))
