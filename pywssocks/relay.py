@@ -59,8 +59,8 @@ class Relay:
     """A relay that handles stream transport between SOCKS5 and WebSocket"""
 
     def __init__(
-        self, 
-        logger: Optional[logging.Logger] = None, 
+        self,
+        logger: Optional[logging.Logger] = None,
         buffer_size: int = 32768,
         upstream_proxy: Optional[str] = None,
         upstream_username: Optional[str] = None,
@@ -429,7 +429,9 @@ class Relay:
             if request_msg.address is None or request_msg.port is None:
                 raise ValueError("Missing address or port in connection request")
             else:
-                self._log.debug(f"Attempting TCP connection to {request_msg.address}:{request_msg.port}.")
+                self._log.debug(
+                    f"Attempting TCP connection to {request_msg.address}:{request_msg.port}."
+                )
 
             if self._upstream_proxy:
                 # Connect through upstream SOCKS5 proxy
@@ -898,7 +900,9 @@ class Relay:
         else:
             return sock.sendto(data, address)
 
-    async def _connect_via_socks5(self, target_addr: str, target_port: int) -> socket.socket:
+    async def _connect_via_socks5(
+        self, target_addr: str, target_port: int
+    ) -> socket.socket:
         """Connect to target through upstream SOCKS5 proxy.
 
         Args:
@@ -949,7 +953,9 @@ class Relay:
             # Handle authentication if required
             if response[1] == 0x02:
                 if not self._upstream_username or not self._upstream_password:
-                    raise Exception("Proxy requires authentication but no credentials provided")
+                    raise Exception(
+                        "Proxy requires authentication but no credentials provided"
+                    )
 
                 # Username/Password auth
                 auth = bytearray([0x01])

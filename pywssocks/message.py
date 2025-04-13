@@ -239,7 +239,9 @@ def pack_message(msg: BaseMessage) -> bytes:
             result.append(len(msg.target_addr) if msg.target_addr else 0)
             if msg.target_addr:
                 result.extend(msg.target_addr.encode())
-            result.extend(struct.pack(">H", msg.target_port if msg.target_port is not None else 0))
+            result.extend(
+                struct.pack(">H", msg.target_port if msg.target_port is not None else 0)
+            )
 
     elif isinstance(msg, DisconnectMessage):
         result.append(BinaryType.DISCONNECT)

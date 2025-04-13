@@ -606,6 +606,7 @@ def test_socket_manager_reuse(caplog, website):
 
 def test_connector(caplog, website):
     """Test basic connector functionality"""
+
     async def _main():
         async with reverse_server(token="<token>") as (
             server,
@@ -630,8 +631,11 @@ def test_connector(caplog, website):
 
 def test_connector_autonomy(caplog, website):
     """Test connector autonomy where reverse client can manage connector tokens"""
+
     async def _main():
-        async with reverse_server(token="<token>", token_kw={"allow_manage_connector": True}) as (
+        async with reverse_server(
+            token="<token>", token_kw={"allow_manage_connector": True}
+        ) as (
             server,
             server_task,
             ws_port,

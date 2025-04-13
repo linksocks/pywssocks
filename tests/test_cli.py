@@ -76,7 +76,7 @@ def forward_proxy(socks_auth=None):
 @contextlib.contextmanager
 def reverse_proxy(socks_auth=None, connector_token=None, connector_autonomy=None):
     """Create reverse proxy server and client processes with optional SOCKS auth and connector options
-    
+
     Args:
         socks_auth: Optional tuple of (username, password) for SOCKS auth
         connector_token: Optional connector token for the server
@@ -464,7 +464,12 @@ def test_cli_http_access():
 @pytest.mark.cli_features
 def test_cli_connector(website):
     """Test basic connector functionality with pre-configured connector token"""
-    with reverse_proxy(connector_token="test_connector_token") as (server_process, client_process, ws_port, socks_port):
+    with reverse_proxy(connector_token="test_connector_token") as (
+        server_process,
+        client_process,
+        ws_port,
+        socks_port,
+    ):
         connector_port = get_free_port()
         # Start a second client using the connector token
         connector_client = subprocess.Popen(
@@ -499,7 +504,12 @@ def test_cli_connector(website):
 @pytest.mark.cli_features
 def test_cli_connector_autonomy(website):
     """Test connector autonomy where reverse client can manage connector tokens"""
-    with reverse_proxy(connector_autonomy="test_connector_token") as (server_process, client_process, ws_port, socks_port):
+    with reverse_proxy(connector_autonomy="test_connector_token") as (
+        server_process,
+        client_process,
+        ws_port,
+        socks_port,
+    ):
         connector_port = get_free_port()
         # Start a second client using the connector token
         connector_client = subprocess.Popen(

@@ -35,6 +35,7 @@ _default_logger = logging.getLogger(__name__)
 @dataclass
 class TokenOptions:
     """Options for a token including authentication and permissions"""
+
     username: Optional[str] = None
     password: Optional[str] = None
     allow_manage_connector: bool = False
@@ -42,13 +43,26 @@ class TokenOptions:
 
 class ConnectorCache:
     """Cache for managing connector connections and channels"""
+
     def __init__(self):
-        self._channel_id_to_client: dict[UUID, ServerConnection] = {}  # Maps channel_id to reverse client WebSocket
-        self._channel_id_to_connector: dict[UUID, ServerConnection] = {}  # Maps channel_id to connector WebSocket
-        self._token_cache: dict[str, list[UUID]] = {}  # Maps token to list of channel_ids
+        self._channel_id_to_client: dict[UUID, ServerConnection] = (
+            {}
+        )  # Maps channel_id to reverse client WebSocket
+        self._channel_id_to_connector: dict[UUID, ServerConnection] = (
+            {}
+        )  # Maps channel_id to connector WebSocket
+        self._token_cache: dict[str, list[UUID]] = (
+            {}
+        )  # Maps token to list of channel_ids
         self._lock = asyncio.Lock()
 
-    async def add_channel(self, channel_id: UUID, connector_ws: ServerConnection, client_ws: ServerConnection, token: str):
+    async def add_channel(
+        self,
+        channel_id: UUID,
+        connector_ws: ServerConnection,
+        client_ws: ServerConnection,
+        token: str,
+    ):
         async with self._lock:
             self._channel_id_to_connector[channel_id] = connector_ws
             self._channel_id_to_client[channel_id] = client_ws
@@ -307,10 +321,12 @@ class WSSocksServer(Relay):
 
         # Manage connector connections and channels
         self._conn_cache = ConnectorCache()
-        
+
         self._stopping = asyncio.Event()
 
-    def add_connector_token(self, connector_token: Optional[str] = None, reverse_token: Optional[str] = None) -> Optional[str]:
+    def add_connector_token(
+        self, connector_token: Optional[str] = None, reverse_token: Optional[str] = None
+    ) -> Optional[str]:
         """Add a new connector token that forwards requests to a reverse token
 
         Args:
@@ -361,7 +377,7 @@ class WSSocksServer(Relay):
 
         if token in self._tokens:
             return token, self._tokens[token]
-        
+
         if allow_manage_connector:
             self._tokens[token] = -1
             self._token_locks[token] = asyncio.Lock()
@@ -373,7 +389,11 @@ class WSSocksServer(Relay):
             self._tokens[token] = port
             self._token_locks[token] = asyncio.Lock()
             self._log.info(f"New reverse proxy token added for port {port}.")
-        self._token_options[token] = TokenOptions(username=username, password=password, allow_manage_connector=allow_manage_connector)
+        self._token_options[token] = TokenOptions(
+            username=username,
+            password=password,
+            allow_manage_connector=allow_manage_connector,
+        )
         if self._loop:
             self._loop.create_task(self._handle_pending_token(token))
         else:
@@ -407,7 +427,11 @@ class WSSocksServer(Relay):
             bool: True if token was found and removed, False otherwise
         """
         # Check if token exists
-        if token not in self._tokens and token not in self._forward_tokens and token not in self._connector_tokens:
+        if (
+            token not in self._tokens
+            and token not in self._forward_tokens
+            and token not in self._connector_tokens
+        ):
             return False
 
         # Handle connector token
@@ -443,7 +467,9 @@ class WSSocksServer(Relay):
                         for client_id, ws in self._token_clients[internal_token]:
                             if self._loop:
                                 try:
-                                    self._loop.create_task(ws.close(1000, "Token removed"))
+                                    self._loop.create_task(
+                                        ws.close(1000, "Token removed")
+                                    )
                                 except:
                                     pass
                             if client_id in self._clients:
@@ -624,12 +650,12 @@ class WSSocksServer(Relay):
                 f"No available client for SOCKS5 port {self._tokens[token]}."
             )
             return await self._refuse_socks_request(socks_socket, 3)
-        
+
         # Get auth from token options
         token_options = self._token_options.get(token)
         socks_username = token_options.username if token_options else None
         socks_password = token_options.password if token_options else None
-        
+
         return await super()._handle_socks_request(
             websocket, socks_socket, socks_username, socks_password
         )
@@ -687,20 +713,24 @@ class WSSocksServer(Relay):
                 lock = self._token_locks[token]
 
                 # For tokens with allow_manage_connector, generate a unique internal token
-                if self._token_options.get(token, TokenOptions()).allow_manage_connector:
+                if self._token_options.get(
+                    token, TokenOptions()
+                ).allow_manage_connector:
                     internal_token = str(instance)
-                    
+
                     # Add to internal tokens mapping first
                     if token not in self._internal_tokens:
                         self._internal_tokens[token] = []
                     self._internal_tokens[token].append(internal_token)
-                    
+
                     # Set up the internal token
                     self._token_indexes[internal_token] = 0
                     self._token_options[internal_token] = self._token_options[token]
-                    self._tokens[internal_token] = -1  # Use -1 to indicate no SOCKS port
+                    self._tokens[internal_token] = (
+                        -1
+                    )  # Use -1 to indicate no SOCKS port
                     self._token_locks[internal_token] = asyncio.Lock()
-                    
+
                     # Initialize token clients list
                     if internal_token not in self._token_clients:
                         self._token_clients[internal_token] = []
@@ -710,7 +740,9 @@ class WSSocksServer(Relay):
                     async with lock:
                         if internal_token not in self._token_clients:
                             self._token_clients[internal_token] = []
-                        self._token_clients[internal_token].append((client_id, websocket))
+                        self._token_clients[internal_token].append(
+                            (client_id, websocket)
+                        )
 
                 # Ensure SOCKS server is running
                 if socks_port not in self._socks_tasks and socks_port > 0:
@@ -734,12 +766,12 @@ class WSSocksServer(Relay):
 
             elif not reverse and token in self._connector_tokens:  # connector proxy
                 client_id = uuid4()
-                
+
                 # Add to token clients
                 if token not in self._token_clients:
                     self._token_clients[token] = []
                 self._token_clients[token].append((client_id, websocket))
-                
+
                 self._clients[client_id] = websocket
                 response_msg = AuthResponseMessage(success=True, error=None)
                 self.log_message(response_msg, "send")
@@ -756,21 +788,25 @@ class WSSocksServer(Relay):
             # Start message handling based on client type
             tasks = [
                 asyncio.create_task(self._ws_heartbeat(websocket, client_id)),
-                asyncio.create_task(self._stopping.wait())
+                asyncio.create_task(self._stopping.wait()),
             ]
 
             # Add appropriate message dispatcher
             if token in self._connector_tokens:
                 # Use connector message dispatcher for connector clients
                 reverse_token = self._connector_tokens[token]
-                tasks.append(asyncio.create_task(
-                    self._connector_message_dispatcher(websocket, client_id, reverse_token)
-                ))
+                tasks.append(
+                    asyncio.create_task(
+                        self._connector_message_dispatcher(
+                            websocket, client_id, reverse_token
+                        )
+                    )
+                )
             else:
                 # Use regular message dispatcher for other clients
-                tasks.append(asyncio.create_task(
-                    self._message_dispatcher(websocket, client_id)
-                ))
+                tasks.append(
+                    asyncio.create_task(self._message_dispatcher(websocket, client_id))
+                )
 
             try:
                 done, pending = await asyncio.wait(
@@ -848,7 +884,9 @@ class WSSocksServer(Relay):
                 except:
                     pass
 
-    async def _connector_message_dispatcher(self, websocket: ServerConnection, client_id: UUID, reverse_token: str) -> None:
+    async def _connector_message_dispatcher(
+        self, websocket: ServerConnection, client_id: UUID, reverse_token: str
+    ) -> None:
         """Handle WebSocket message distribution for connector tokens"""
         try:
             while True:
@@ -856,7 +894,7 @@ class WSSocksServer(Relay):
                     msg_data = await asyncio.wait_for(
                         websocket.recv(), timeout=60
                     )  # 60 seconds timeout
-                    
+
                     if not isinstance(msg_data, bytes):
                         self._log.warning("Received non-binary message, ignoring")
                         continue
@@ -878,7 +916,7 @@ class WSSocksServer(Relay):
                             response = ConnectResponseMessage(
                                 channel_id=msg.channel_id,
                                 success=False,
-                                error="no available reverse clients"
+                                error="no available reverse clients",
                             )
                             self.log_message(response, "send")
                             await websocket.send(pack_message(response))
@@ -886,10 +924,7 @@ class WSSocksServer(Relay):
 
                         # Store channel mapping
                         await self._conn_cache.add_channel(
-                            msg.channel_id,
-                            websocket,
-                            reverse_ws,
-                            reverse_token
+                            msg.channel_id, websocket, reverse_ws, reverse_token
                         )
 
                         # Forward connect message to reverse client
@@ -903,7 +938,9 @@ class WSSocksServer(Relay):
                             self.log_message(msg, "send")
                             await target_ws.send(pack_message(msg))
                         else:
-                            self._log.debug(f"Received data for unknown channel: {msg.channel_id}")
+                            self._log.debug(
+                                f"Received data for unknown channel: {msg.channel_id}"
+                            )
 
                     elif isinstance(msg, DisconnectMessage):
                         # Clean up channel mappings and forward message
@@ -917,7 +954,9 @@ class WSSocksServer(Relay):
                     try:
                         await websocket.ping()
                     except:
-                        self._log.warning(f"Connection timeout for connector client {client_id}")
+                        self._log.warning(
+                            f"Connection timeout for connector client {client_id}"
+                        )
                         break
                 except ConnectionClosed:
                     self._log.info(f"Connector client {client_id} connection closed.")
@@ -928,7 +967,9 @@ class WSSocksServer(Relay):
                 f"Connector WebSocket error for client {client_id}: {e.__class__.__name__}: {e}."
             )
 
-    async def _message_dispatcher(self, websocket: ServerConnection, client_id: UUID) -> None:
+    async def _message_dispatcher(
+        self, websocket: ServerConnection, client_id: UUID
+    ) -> None:
         """WebSocket message receiver distributing messages to different message queues"""
 
         network_handler_tasks = set()  # Track network connection handler tasks
@@ -939,7 +980,7 @@ class WSSocksServer(Relay):
                     msg_data = await asyncio.wait_for(
                         websocket.recv(), timeout=60
                     )  # 60 seconds timeout
-                    
+
                     if not isinstance(msg_data, bytes):
                         self._log.warning("Received non-binary message, ignoring")
                         continue
@@ -957,22 +998,31 @@ class WSSocksServer(Relay):
                         if channel_id in self._message_queues:
                             await self._message_queues[channel_id].put(msg)
                         else:
-                            target_ws = await self._conn_cache.get_connector(msg.channel_id)
+                            target_ws = await self._conn_cache.get_connector(
+                                msg.channel_id
+                            )
                             if target_ws:
                                 self.log_message(msg, "send")
                                 await target_ws.send(pack_message(msg))
                             else:
-                                self._log.debug(f"Received data for unknown channel: {channel_id}")
+                                self._log.debug(
+                                    f"Received data for unknown channel: {channel_id}"
+                                )
                     elif isinstance(msg, ConnectResponseMessage):
                         connect_id = str(msg.channel_id)
                         if connect_id in self._message_queues:
                             await self._message_queues[connect_id].put(msg)
                         else:
-                            target_ws = await self._conn_cache.get_connector(msg.channel_id)
+                            target_ws = await self._conn_cache.get_connector(
+                                msg.channel_id
+                            )
                             if target_ws:
                                 self.log_message(msg, "send")
                                 await target_ws.send(pack_message(msg))
-                    elif isinstance(msg, ConnectMessage) and client_id in self._forward_clients:
+                    elif (
+                        isinstance(msg, ConnectMessage)
+                        and client_id in self._forward_clients
+                    ):
                         self._message_queues[str(msg.channel_id)] = asyncio.Queue()
                         handler_task = asyncio.create_task(
                             self._handle_network_connection(websocket, msg)
@@ -995,7 +1045,9 @@ class WSSocksServer(Relay):
                         # Check permissions
                         has_permission = False
                         if client_token and client_token in self._token_options:
-                            has_permission = self._token_options[client_token].allow_manage_connector
+                            has_permission = self._token_options[
+                                client_token
+                            ].allow_manage_connector
 
                         response = ConnectorResponseMessage(
                             success=False,
@@ -1005,7 +1057,9 @@ class WSSocksServer(Relay):
 
                         if has_permission:
                             if msg.operation == "add":
-                                new_token = self.add_connector_token(msg.connector_token, client_token)
+                                new_token = self.add_connector_token(
+                                    msg.connector_token, client_token
+                                )
                                 if new_token:
                                     response.success = True
                                     response.connector_token = new_token
@@ -1017,7 +1071,9 @@ class WSSocksServer(Relay):
                                 else:
                                     response.error = "Failed to remove connector token"
                             else:
-                                response.error = f"Unknown connector operation: {msg.operation}"
+                                response.error = (
+                                    f"Unknown connector operation: {msg.operation}"
+                                )
                         else:
                             response.error = "Unauthorized connector management attempt"
 
@@ -1104,14 +1160,19 @@ class WSSocksServer(Relay):
         else:
             return connection.respond(HTTPStatus.NOT_FOUND, "404 Not Found\n")
 
-    async def _disconnect_channel(self, channel_id: UUID, websocket: ServerConnection, msg: Union[ConnectResponseMessage, DisconnectMessage]) -> None:
+    async def _disconnect_channel(
+        self,
+        channel_id: UUID,
+        websocket: ServerConnection,
+        msg: Union[ConnectResponseMessage, DisconnectMessage],
+    ) -> None:
         """Handle forwarding disconnect message and cleanup of channel resources"""
         # Forward disconnect message to connector if exists
         target_ws = await self._conn_cache.get_connector(channel_id)
         if target_ws:
             self.log_message(msg, "send")
             await target_ws.send(pack_message(msg))
-        
+
         # Clean up channel
         await self._conn_cache.remove_channel(channel_id)
         self.disconnect_channel(str(channel_id))
