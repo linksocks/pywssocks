@@ -602,3 +602,56 @@ def test_socket_manager_reuse(caplog, website):
                         raise RuntimeError("socket not reused")
 
     return asyncio.run(asyncio.wait_for(_main(), 30))
+
+
+def test_connector(caplog, website):
+    """Test basic connector functionality"""
+    async def _main():
+        async with reverse_server(token="<token>") as (
+            server,
+            server_task,
+            ws_port,
+            token,
+            socks_port,
+        ):
+            server.add_connector_token("<connector_token>", "<token>")
+            # Start reverse client
+            async with reverse_client(ws_port, token) as (client, client_task):
+                # Start connector client
+                async with forward_client(ws_port, "<connector_token>") as (
+                    connector_client,
+                    connector_task,
+                    connector_port,
+                ):
+                    await async_assert_web_connection(website, connector_port)
+
+    return asyncio.run(asyncio.wait_for(_main(), 30))
+
+
+def test_connector_autonomy(caplog, website):
+    """Test connector autonomy where reverse client can manage connector tokens"""
+    async def _main():
+        async with reverse_server(token="<token>", token_kw={"allow_manage_connector": True}) as (
+            server,
+            server_task,
+            ws_port,
+            token,
+            socks_port,
+        ):
+            # Start reverse client with connector token
+            async with reverse_client(ws_port, token) as (client, client_task):
+                await client.add_connector("<connector_token>")
+
+                # Start connector client
+                async with forward_client(ws_port, "<connector_token>") as (
+                    connector_client,
+                    connector_task,
+                    connector_port,
+                ):
+                    await async_assert_web_connection(website, connector_port)
+
+                    # Test that server connection fails (no connector token set up yet)
+                    with pytest.raises(RuntimeError):
+                        await async_assert_web_connection(website, socks_port)
+
+    return asyncio.run(asyncio.wait_for(_main(), 30))

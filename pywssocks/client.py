@@ -1,8 +1,8 @@
 from typing import Optional
 import asyncio
 import socket
-import json
 import logging
+import uuid
 from urllib.parse import urlparse, urlunparse
 
 from websockets.exceptions import ConnectionClosed
@@ -10,6 +10,18 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from pywssocks.relay import Relay
 from pywssocks import __version__
+from .message import (
+    AuthMessage,
+    AuthResponseMessage,
+    ConnectMessage,
+    ConnectResponseMessage,
+    DataMessage,
+    pack_message,
+    parse_message,
+    ConnectorMessage,
+    ConnectorResponseMessage,
+    DisconnectMessage,
+)
 
 
 class WSSocksClient(Relay):
@@ -117,32 +129,51 @@ class WSSocksClient(Relay):
 
     async def _message_dispatcher(self, websocket: ClientConnection) -> None:
         """Global WebSocket message dispatcher"""
-
+        
         try:
             while True:
-                msg = await websocket.recv()
-                data = json.loads(msg)
-                if data["type"] == "data":
-                    channel_id = data.get("channel_id", None)
-                    connect_id = data.get("connect_id", None)
-                    if channel_id and channel_id in self._message_queues:
-                        await self._message_queues[channel_id].put(data)
+                msg_data = await websocket.recv()
+                if not isinstance(msg_data, bytes):
+                    self._log.warning(f"Received non-binary message, ignoring.")
+                    continue
+                
+                try:
+                    msg = parse_message(msg_data)
+                except Exception as e:
+                    self._log.error(f"Failed to parse message: {e}")
+                    continue
+                else:
+                    self.log_message(msg, "recv")
+                
+                if isinstance(msg, DataMessage):
+                    channel_id = str(msg.channel_id)
+                    if channel_id in self._message_queues:
+                        await self._message_queues[channel_id].put(msg)
                     else:
                         self._log.warning(
                             f"Received data for unknown channel: {channel_id}"
                         )
-                elif data["type"] == "connect":
-                    self._log.debug(f"Received network connection request: {data}")
+                elif isinstance(msg, ConnectMessage):
+                    self._message_queues[str(msg.channel_id)] = asyncio.Queue()
                     asyncio.create_task(
-                        self._handle_network_connection(websocket, data)
+                        self._handle_network_connection(websocket, msg)
                     )
-                elif data["type"] == "connect_response":
-                    self._log.debug(f"Received network connection response: {data}")
-                    connect_id = data["connect_id"]
+                elif isinstance(msg, ConnectResponseMessage):
+                    connect_id = str(msg.channel_id)
                     if connect_id in self._message_queues:
-                        await self._message_queues[connect_id].put(data)
+                        await self._message_queues[connect_id].put(msg)
+                elif isinstance(msg, AuthResponseMessage):
+                    connect_id = "auth"
+                    if connect_id in self._message_queues:
+                        await self._message_queues[connect_id].put(msg)
+                elif isinstance(msg, DisconnectMessage):
+                    self.disconnect_channel(str(msg.channel_id))
+                elif isinstance(msg, ConnectorResponseMessage):
+                    connect_id = str(msg.channel_id)
+                    if connect_id in self._message_queues:
+                        await self._message_queues[connect_id].put(msg)
                 else:
-                    self._log.warning(f"Received unknown message type: {data['type']}.")
+                    self._log.warning(f"Received unknown message type: {msg.__class__.__name__}.")
         except ConnectionClosed:
             self._log.error("WebSocket connection closed.")
         except Exception as e:
@@ -230,16 +261,31 @@ class WSSocksClient(Relay):
                             self._run_socks_server(ready_event=socks_ready)
                         )
 
-                        await websocket.send(
-                            json.dumps(
-                                {"type": "auth", "reverse": False, "token": self._token}
-                            )
+                        # Create auth queue and message
+                        auth_queue = asyncio.Queue()
+                        self._message_queues["auth"] = auth_queue
+                        
+                        auth_msg = AuthMessage(
+                            token=self._token,
+                            reverse=False,
+                            instance=uuid.uuid4()
                         )
-                        auth_response = await websocket.recv()
-                        auth_data = json.loads(auth_response)
+                        self.log_message(auth_msg, "send")
+                        await websocket.send(pack_message(auth_msg))
+                        
+                        # Directly receive auth response
+                        msg_data = await websocket.recv()
+                        if not isinstance(msg_data, bytes):
+                            raise ValueError("Received non-binary auth response")
+                        
+                        auth_response = parse_message(msg_data)
+                        if not isinstance(auth_response, AuthResponseMessage):
+                            raise ValueError(f"Expected AuthResponseMessage, got {type(auth_response)}")
+                        
+                        self.log_message(auth_response, "recv")
 
-                        if not auth_data.get("success"):
-                            self._log.error("Authentication failed.")
+                        if not auth_response.success:
+                            self._log.error(f"Authentication failed: {auth_response.error}")
                             return
 
                         self._log.info("Authentication successful for forward proxy.")
@@ -318,19 +364,33 @@ class WSSocksClient(Relay):
                     async with connect(
                         self._ws_url, logger=self._log.getChild("ws")
                     ) as websocket:
-                        # Send authentication information
-                        await websocket.send(
-                            json.dumps(
-                                {"type": "auth", "reverse": True, "token": self._token}
-                            )
+                        self._websocket = websocket
+                        
+                        # Create auth queue and message
+                        auth_queue = asyncio.Queue()
+                        self._message_queues["auth"] = auth_queue
+                        
+                        auth_msg = AuthMessage(
+                            token=self._token,
+                            reverse=True,
+                            instance=uuid.uuid4()
                         )
+                        self.log_message(auth_msg, "send")
+                        await websocket.send(pack_message(auth_msg))
+                        
+                        # Directly receive auth response
+                        msg_data = await websocket.recv()
+                        if not isinstance(msg_data, bytes):
+                            raise ValueError("Received non-binary auth response")
+                        
+                        auth_response = parse_message(msg_data)
+                        if not isinstance(auth_response, AuthResponseMessage):
+                            raise ValueError(f"Expected AuthResponseMessage, got {type(auth_response)}")
+                        
+                        self.log_message(auth_response, "recv")
 
-                        # Wait for authentication response
-                        auth_response = await websocket.recv()
-                        auth_data = json.loads(auth_response)
-
-                        if not auth_data.get("success"):
-                            self._log.error("Authentication failed.")
+                        if not auth_response.success:
+                            self._log.error(f"Authentication failed: {auth_response.error}")
                             return
 
                         self._log.info("Authentication successful for reverse proxy.")
@@ -382,6 +442,7 @@ class WSSocksClient(Relay):
                         )
                         break
                 finally:
+                    self._websocket = None
                     self.connected.clear()
                     self.disconnected.set()
 
@@ -419,3 +480,101 @@ class WSSocksClient(Relay):
         finally:
             # Ensure logging when heartbeat handler exits
             self._log.debug("Heartbeat handler stopped.")
+
+    async def add_connector(self, connector_token: str) -> str:
+        """Send a request to add a new connector token and wait for response.
+        This function is only available in reverse proxy mode.
+
+        Args:
+            connector_token: Optional connector token to use, auto-generated if None
+
+        Returns:
+            str: The new connector token
+
+        Raises:
+            RuntimeError: If not in reverse proxy mode or client not connected
+            ValueError: If the request fails
+        """
+        if not self._reverse:
+            raise RuntimeError("Add connector is only available in reverse proxy mode")
+
+        if not self._websocket:
+            raise RuntimeError("Client not connected")
+
+        channel_id = uuid.uuid4()
+        msg = ConnectorMessage(
+            operation="add",
+            channel_id=channel_id,
+            connector_token=connector_token
+        )
+
+        # Create response queue
+        resp_queue = asyncio.Queue()
+        self._message_queues[str(channel_id)] = resp_queue
+
+        try:
+            # Send request
+            self.log_message(msg, "send")
+            await self._websocket.send(pack_message(msg))
+
+            # Wait for response with timeout
+            try:
+                resp = await asyncio.wait_for(resp_queue.get(), timeout=10)
+                if not isinstance(resp, ConnectorResponseMessage):
+                    raise ValueError("Unexpected message type for connector response")
+                if not resp.success:
+                    raise ValueError(f"Connector request failed: {resp.error}")
+                return resp.connector_token or ""
+            except asyncio.TimeoutError:
+                raise ValueError("Timeout waiting for connector response")
+
+        finally:
+            if str(channel_id) in self._message_queues:
+                del self._message_queues[str(channel_id)]
+
+    async def remove_connector(self, connector_token: str) -> None:
+        """Send a request to remove a connector token and wait for response.
+        This function is only available in reverse proxy mode.
+
+        Args:
+            connector_token: The connector token to remove
+
+        Raises:
+            RuntimeError: If not in reverse proxy mode or client not connected
+            ValueError: If the request fails
+        """
+        if not self._reverse:
+            raise RuntimeError("Remove connector is only available in reverse proxy mode")
+
+        if not self._websocket:
+            raise RuntimeError("Client not connected")
+
+        channel_id = uuid.uuid4()
+        msg = ConnectorMessage(
+            operation="remove",
+            channel_id=channel_id,
+            connector_token=connector_token
+        )
+
+        # Create response queue
+        resp_queue = asyncio.Queue()
+        self._message_queues[str(channel_id)] = resp_queue
+
+        try:
+            # Send request
+            self.log_message(msg, "send")
+            await self._websocket.send(pack_message(msg))
+
+            # Wait for response with timeout
+            try:
+                resp = await asyncio.wait_for(resp_queue.get(), timeout=10)
+                if not isinstance(resp, ConnectorResponseMessage):
+                    raise ValueError("Unexpected message type for connector response")
+                if not resp.success:
+                    raise ValueError(f"Connector request failed: {resp.error}")
+            except asyncio.TimeoutError:
+                raise ValueError("Timeout waiting for connector response")
+
+        finally:
+            if str(channel_id) in self._message_queues:
+                del self._message_queues[str(channel_id)]

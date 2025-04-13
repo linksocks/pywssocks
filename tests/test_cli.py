@@ -74,8 +74,14 @@ def forward_proxy(socks_auth=None):
 
 
 @contextlib.contextmanager
-def reverse_proxy(socks_auth=None):
-    """Create reverse proxy server and client processes with optional SOCKS auth"""
+def reverse_proxy(socks_auth=None, connector_token=None, connector_autonomy=None):
+    """Create reverse proxy server and client processes with optional SOCKS auth and connector options
+    
+    Args:
+        socks_auth: Optional tuple of (username, password) for SOCKS auth
+        connector_token: Optional connector token for the server
+        connector_autonomy: Optional connector token to be used by client when autonomy is enabled
+    """
     try:
         ws_port = get_free_port()
         socks_port = get_free_port()
@@ -93,6 +99,10 @@ def reverse_proxy(socks_auth=None):
         ]
         if socks_auth:
             server_cmd.extend(["-n", socks_auth[0], "-w", socks_auth[1]])
+        if connector_token:
+            server_cmd.extend(["-c", connector_token])
+        if connector_autonomy:
+            server_cmd.append("-a")
 
         server_process = subprocess.Popen(
             server_cmd,
@@ -103,17 +113,21 @@ def reverse_proxy(socks_auth=None):
 
         time.sleep(1)
 
+        client_cmd = [
+            "pywssocks",
+            "client",
+            "-t",
+            "test_token",
+            "-u",
+            f"ws://localhost:{ws_port}",
+            "-r",
+            "-d",
+        ]
+        if connector_autonomy:
+            client_cmd.extend(["-c", connector_autonomy])
+
         client_process = subprocess.Popen(
-            [
-                "pywssocks",
-                "client",
-                "-t",
-                "test_token",
-                "-u",
-                f"ws://localhost:{ws_port}",
-                "-r",
-                "-d",
-            ],
+            client_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
@@ -445,3 +459,76 @@ def test_cli_http_access():
         )
         assert "is running" in response.content.decode()
         assert response.status_code == 200
+
+
+@pytest.mark.cli_features
+def test_cli_connector(website):
+    """Test basic connector functionality with pre-configured connector token"""
+    with reverse_proxy(connector_token="test_connector_token") as (server_process, client_process, ws_port, socks_port):
+        connector_port = get_free_port()
+        # Start a second client using the connector token
+        connector_client = subprocess.Popen(
+            [
+                "pywssocks",
+                "client",
+                "-t",
+                "test_connector_token",
+                "-u",
+                f"ws://localhost:{ws_port}",
+                "-p",
+                str(connector_port),
+                "-d",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+
+        try:
+            # Wait for connector client to connect
+            assert wait_for_output(connector_client, CLIENT_START_MSG, 10)
+
+            # Test connections through both proxies
+            assert_web_connection(website, socks_port)
+            assert_web_connection(website, connector_port)
+        finally:
+            connector_client.terminate()
+            connector_client.wait()
+
+
+@pytest.mark.cli_features
+def test_cli_connector_autonomy(website):
+    """Test connector autonomy where reverse client can manage connector tokens"""
+    with reverse_proxy(connector_autonomy="test_connector_token") as (server_process, client_process, ws_port, socks_port):
+        connector_port = get_free_port()
+        # Start a second client using the connector token
+        connector_client = subprocess.Popen(
+            [
+                "pywssocks",
+                "client",
+                "-t",
+                "test_connector_token",
+                "-u",
+                f"ws://localhost:{ws_port}",
+                "-p",
+                str(connector_port),
+                "-d",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+
+        try:
+            # Wait for connector client to connect
+            assert wait_for_output(connector_client, CLIENT_START_MSG, 10)
+
+            # Test that server connection fails (no connector token set up yet)
+            with pytest.raises(RuntimeError):
+                assert_web_connection(website, socks_port)
+
+            # Test that connector client connection works
+            assert_web_connection(website, connector_port)
+        finally:
+            connector_client.terminate()
+            connector_client.wait()
