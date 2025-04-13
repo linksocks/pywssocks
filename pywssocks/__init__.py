@@ -1,4 +1,4 @@
-__version__ = "1.1.2"
+__version__ = "1.4.2"
 
 import importlib as _i
 import typing as _t
