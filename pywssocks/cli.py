@@ -120,38 +120,38 @@ def _client_cli(
     from pywssocks.client import WSSocksClient
     from pywssocks.common import init_logging
 
-    async def main(client: WSSocksClient):
+    async def main():
+        init_logging(level=logging.DEBUG if debug else logging.INFO)
+
+        if upstream_proxy:
+            upstream_host, upstream_username, upstream_password = parse_socks_proxy(
+                upstream_proxy
+            )
+        else:
+            upstream_host = upstream_username = upstream_password = None
+
+        # Start server
+        client = WSSocksClient(
+            ws_url=url,
+            token=token,
+            reverse=reverse,
+            socks_host=socks_host,
+            socks_port=socks_port,
+            socks_username=socks_username,
+            socks_password=socks_password,
+            socks_wait_server=not socks_no_wait,
+            reconnect=not no_reconnect,
+            upstream_proxy=upstream_host,
+            upstream_username=upstream_username,
+            upstream_password=upstream_password,
+        )
+
         task = await client.wait_ready()
         if connector_token:
             await client.add_connector(connector_token)
         return await task
 
-    init_logging(level=logging.DEBUG if debug else logging.INFO)
-
-    if upstream_proxy:
-        upstream_host, upstream_username, upstream_password = parse_socks_proxy(
-            upstream_proxy
-        )
-    else:
-        upstream_host = upstream_username = upstream_password = None
-
-    # Start server
-    client = WSSocksClient(
-        ws_url=url,
-        token=token,
-        reverse=reverse,
-        socks_host=socks_host,
-        socks_port=socks_port,
-        socks_username=socks_username,
-        socks_password=socks_password,
-        socks_wait_server=not socks_no_wait,
-        reconnect=not no_reconnect,
-        upstream_proxy=upstream_host,
-        upstream_username=upstream_username,
-        upstream_password=upstream_password,
-    )
-
-    asyncio.run(main(client))
+    asyncio.run(main())
 
 
 @click.command()
@@ -233,67 +233,74 @@ def _server_cli(
     from pywssocks.server import WSSocksServer
     from pywssocks.common import init_logging
 
-    init_logging(level=logging.DEBUG if debug else logging.INFO)
+    async def main():
+        init_logging(level=logging.DEBUG if debug else logging.INFO)
 
-    if upstream_proxy:
-        upstream_host, upstream_username, upstream_password = parse_socks_proxy(
-            upstream_proxy
+        if upstream_proxy:
+            upstream_host, upstream_username, upstream_password = parse_socks_proxy(
+                upstream_proxy
+            )
+        else:
+            upstream_host = upstream_username = upstream_password = None
+
+        # Create server instance
+        server = WSSocksServer(
+            ws_host=ws_host,
+            ws_port=ws_port,
+            socks_host=socks_host,
+            socks_wait_client=not socks_nowait,
+            upstream_proxy=upstream_host,
+            upstream_username=upstream_username,
+            upstream_password=upstream_password,
         )
-    else:
-        upstream_host = upstream_username = upstream_password = None
 
-    # Create server instance
-    server = WSSocksServer(
-        ws_host=ws_host,
-        ws_port=ws_port,
-        socks_host=socks_host,
-        socks_wait_client=not socks_nowait,
-        upstream_proxy=upstream_host,
-        upstream_username=upstream_username,
-        upstream_password=upstream_password,
-    )
+        # Add token based on mode
+        if reverse:
+            use_token, port = server.add_reverse_token(
+                token=token,
+                port=socks_port,
+                username=socks_username,
+                password=socks_password,
+                allow_manage_connector=connector_autonomy,
+            )
+            if not port:
+                server._log.error(
+                    f"Cannot allocate SOCKS5 port: {socks_host}:{socks_port}"
+                )
+                return
 
-    # Add token based on mode
-    if reverse:
-        use_token, port = server.add_reverse_token(
-            token=token,
-            port=socks_port,
-            username=socks_username,
-            password=socks_password,
-            allow_manage_connector=connector_autonomy,
-        )
-        if not port:
-            server._log.error(f"Cannot allocate SOCKS5 port: {socks_host}:{socks_port}")
-            return
+            if not connector_autonomy:
+                use_connector_token = server.add_connector_token(
+                    connector_token, use_token
+                )
 
-        if not connector_autonomy:
-            use_connector_token = server.add_connector_token(connector_token, use_token)
+            server._log.info(f"Configuration:")
+            server._log.info(
+                f"  Mode: reverse proxy (SOCKS5 on server -> client -> network)"
+            )
+            server._log.info(f"  Token: {use_token}")
+            server._log.info(f"  SOCKS5 port: {port}")
+            if socks_username and socks_password:
+                server._log.info(f"  SOCKS5 auth: enabled (username: {socks_username})")
+                server._log.info(f"  SOCKS5 port: {socks_port}")
+            if not connector_autonomy:
+                server._log.info(f"  Connector Token: {use_connector_token}")
+            if socks_username or socks_password:
+                server._log.info(f"  SOCKS5 username: {socks_username}")
+            if connector_autonomy:
+                server._log.info(f"  Connector autonomy: enabled")
+        else:
+            use_token = server.add_forward_token(token)
+            server._log.info(f"Configuration:")
+            server._log.info(
+                f"  Mode: forward proxy (SOCKS5 on client -> server -> network)"
+            )
+            server._log.info(f"  Token: {use_token}")
 
-        server._log.info(f"Configuration:")
-        server._log.info(
-            f"  Mode: reverse proxy (SOCKS5 on server -> client -> network)"
-        )
-        server._log.info(f"  Token: {use_token}")
-        server._log.info(f"  SOCKS5 port: {port}")
-        if socks_username and socks_password:
-            server._log.info(f"  SOCKS5 auth: enabled (username: {socks_username})")
-            server._log.info(f"  SOCKS5 port: {socks_port}")
-        if not connector_autonomy:
-            server._log.info(f"  Connector Token: {use_connector_token}")
-        if socks_username or socks_password:
-            server._log.info(f"  SOCKS5 username: {socks_username}")
-        if connector_autonomy:
-            server._log.info(f"  Connector autonomy: enabled")
-    else:
-        use_token = server.add_forward_token(token)
-        server._log.info(f"Configuration:")
-        server._log.info(
-            f"  Mode: forward proxy (SOCKS5 on client -> server -> network)"
-        )
-        server._log.info(f"  Token: {use_token}")
+        return await server.serve()
 
     # Start server
-    asyncio.run(server.serve())
+    asyncio.run(main())
 
 
 cli.add_command(_client_cli, name="client")
