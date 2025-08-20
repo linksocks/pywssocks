@@ -37,7 +37,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/zetxtech/pywssocks"
+Homepage = "https://github.com/linksocks/pywssocks"
 
 [project.scripts]
 pywssocks = "pywssocks.cli:cli"

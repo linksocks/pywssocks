@@ -1,7 +1,7 @@
 site_name: "Documentation for Pywssocks"
 site_url: https://pywssocks.zetx.tech
-repo_url: https://github.com/zetxtech/pywssocks
-repo_name: zetxtech/pywssocks
+repo_url: https://github.com/linksocks/pywssocks
+repo_name: linksocks/pywssocks
 copyright: Copyright &copy; 2025 Zetx Tech
 
 nav:
@@ -104,7 +104,7 @@ markdown_extensions:
 extra:
   social:
     - icon: simple/github
-      link: https://github.com/zetxtech/pywssocks
+      link: https://github.com/linksocks/pywssocks
       name: Project Github Page
   version:
     provider: mike

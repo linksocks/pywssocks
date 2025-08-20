@@ -9,6 +9,8 @@ import string
 from uuid import UUID, uuid4
 from dataclasses import dataclass
 
+from urllib.parse import urlparse, parse_qs
+import hashlib
 from websockets.http11 import Request
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.server import ServerConnection, serve
@@ -684,27 +686,67 @@ class WSSocksServer(Relay):
         internal_token = None
 
         try:
-            # Wait for authentication message
-            auth_data = await websocket.recv()
-            if not isinstance(auth_data, bytes):
-                await websocket.close(1008, "Invalid message format")
-                return
+            req_path = getattr(websocket, "_path", "")
+            parsed_qs = parse_qs(urlparse(req_path).query) if req_path else {}
+            auth_msg = None
 
-            try:
-                auth_msg = parse_message(auth_data)
-                if not isinstance(auth_msg, AuthMessage):
+            if "token" in parsed_qs:
+                raw_token = parsed_qs["token"][0]
+                reverse_str = parsed_qs.get("reverse", ["false"])[0].lower()
+                reverse = reverse_str == "true"
+
+                instance_str = parsed_qs.get("instance", [str(uuid4())])[0]
+                try:
+                    instance = UUID(instance_str)
+                except Exception:
+                    instance = uuid4()
+
+                # Try to resolve raw_token against known tokens (plain or sha256)
+                resolved_token: Optional[str] = None
+                all_tokens: set[str] = (
+                    set(self._tokens.keys())
+                    | self._forward_tokens
+                    | set(self._connector_tokens.keys())
+                )
+
+                for t in all_tokens:
+                    if raw_token == t:
+                        resolved_token = t
+                        break
+                    if raw_token == hashlib.sha256(t.encode()).hexdigest():
+                        resolved_token = t
+                        break
+
+                if not resolved_token:
+                    await websocket.close(1008, "Invalid token")
+                    return
+
+                token = resolved_token
+
+                # Create synthetic AuthMessage for unified downstream handling
+                auth_msg = AuthMessage(token=token, reverse=reverse, instance=instance)
+                self.log_message(auth_msg, "recv")
+            else:
+                auth_data = await websocket.recv()
+                if not isinstance(auth_data, bytes):
+                    await websocket.close(1008, "Invalid message format")
+                    return
+
+                try:
+                    auth_msg = parse_message(auth_data)
+                    if not isinstance(auth_msg, AuthMessage):
+                        await websocket.close(1008, "Invalid auth message")
+                        return
+                except Exception as e:
+                    self._log.error(f"Failed to parse auth message: {e}")
                     await websocket.close(1008, "Invalid auth message")
                     return
-            except Exception as e:
-                self._log.error(f"Failed to parse auth message: {e}")
-                await websocket.close(1008, "Invalid auth message")
-                return
-            else:
-                self.log_message(auth_msg, "recv")
+                else:
+                    self.log_message(auth_msg, "recv")
 
-            token = auth_msg.token
-            reverse = auth_msg.reverse
-            instance = auth_msg.instance
+                token = auth_msg.token
+                reverse = auth_msg.reverse
+                instance = auth_msg.instance
 
             # Validate token and generate client_id only after successful authentication
             if reverse and token in self._tokens:  # reverse proxy
@@ -1148,10 +1190,12 @@ class WSSocksServer(Relay):
     async def _process_request(self, connection: ServerConnection, request: Request):
         """Process HTTP requests before WebSocket handshake"""
 
-        if request.path == "/socket":
+        parsed_path = urlparse(request.path).path
+        if parsed_path == "/socket":
+            setattr(connection, "_path", request.path)
             # Return None to continue WebSocket handshake for WebSocket path
             return None
-        elif request.path == "/":
+        elif parsed_path == "/":
             respond = (
                 f"Pywssocks {__version__} is running but API is not enabled. "
                 "Please check the documentation.\n"

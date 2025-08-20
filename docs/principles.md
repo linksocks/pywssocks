@@ -8,7 +8,7 @@ Then, on the device that needs to access the server's internal network environme
 
 After connecting, the client will open a configurable or random SOCKS5 port for other services to connect to. All requests will be forwarded through the established bidirectional channel, with the server performing the actual connections and sending data.
 
-![Forward Socks Proxy Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/forward_proxy_diagram.svg)
+![Forward Socks Proxy Diagram](https://github.com/linksocks/pywssocks/raw/main/images/forward_proxy_diagram.svg)
 
 ### Reverse Socks Proxy
 
@@ -20,4 +20,4 @@ Then, start a Pywssocks client on the internal network server and connect to the
 
 After connecting, the server will expose a configurable or random socks5 port for other services to connect to. All requests will be forwarded through the established bidirectional channel, with the client performing the actual connections and sending data.
 
-![Reverse Socks Proxy Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/reverse_proxy_diagram.svg)
+![Reverse Socks Proxy Diagram](https://github.com/linksocks/pywssocks/raw/main/images/reverse_proxy_diagram.svg)

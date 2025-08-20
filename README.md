@@ -1,4 +1,4 @@
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/zetxtech/pywssocks/ci.yml?logo=github&label=Tests)](https://github.com/zetxtech/pywssocks/actions) [![Codecov](https://img.shields.io/codecov/c/github/zetxtech/pywssocks?logo=codecov&logoColor=white)](https://app.codecov.io/gh/zetxtech/pywssocks/tree/main) ![Python Version](https://img.shields.io/badge/python_version-%3E%203.8-blue?logo=python&logoColor=white) [![PyPI - Version](https://img.shields.io/pypi/v/pywssocks?logo=pypi&logoColor=white)](https://pypi.org/project/pywssocks/) ![PyPI - Downloads](https://img.shields.io/pypi/dm/pywssocks?logo=pypi&logoColor=white) [![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks?logo=docker&logoColor=white)](https://hub.docker.com/r/jackzzs/pywssocks)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/linksocks/pywssocks/ci.yml?logo=github&label=Tests)](https://github.com/linksocks/pywssocks/actions) [![Codecov](https://img.shields.io/codecov/c/github/linksocks/pywssocks?logo=codecov&logoColor=white)](https://app.codecov.io/gh/linksocks/pywssocks/tree/main) ![Python Version](https://img.shields.io/badge/python_version-%3E%203.8-blue?logo=python&logoColor=white) [![PyPI - Version](https://img.shields.io/pypi/v/pywssocks?logo=pypi&logoColor=white)](https://pypi.org/project/pywssocks/) ![PyPI - Downloads](https://img.shields.io/pypi/dm/pywssocks?logo=pypi&logoColor=white) [![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks?logo=docker&logoColor=white)](https://hub.docker.com/r/jackzzs/pywssocks)
 
 # Pywssocks
 
@@ -8,9 +8,11 @@ Pywssocks is a SOCKS proxy implementation over WebSocket protocol.
 
 This tool allows you to securely expose SOCKS proxy services under Web Application Firewall (WAF) protection (forward socks), or enable clients to connect and serve as SOCKS proxy servers when they don't have public network access (reverse socks).
 
-![Main Diagram](https://github.com/zetxtech/pywssocks/raw/main/images/abstract.svg)
+![Main Diagram](https://github.com/linksocks/pywssocks/raw/main/images/abstract.svg)
 
-For golang version, please check [zetxtech/wssocks](https://github.com/zetxtech/wssocks).
+For golang version, please check [linksocks/linksocks](https://github.com/linksocks/linksocks).
+
+> **Note**: **linksocks** is implemented in Go and also ships with a thin Python binding. **Pywssocks**, however, is written entirely in pure Python (no C extensions) and remains **minimally compatible with the latest linksocks protocol and feature set**.
 
 ## Features
 
