@@ -12,7 +12,7 @@ This tool allows you to securely expose SOCKS proxy services under Web Applicati
 
 For golang version, please check [linksocks/linksocks](https://github.com/linksocks/linksocks).
 
-> **Note**: **linksocks** is implemented in Go and also ships with a thin Python binding. **Pywssocks**, however, is written entirely in pure Python (no C extensions) and remains **minimally compatible with the latest linksocks protocol and feature set**.
+> **Note**: **LinkSocks** is implemented in Go and also ships with a thin Python binding. **Pywssocks**, however, is written entirely in pure Python (no C extensions) and remains **minimally compatible with the latest linksocks protocol and feature set**.
 
 ## Features
 
