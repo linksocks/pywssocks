@@ -4,6 +4,7 @@ import socket
 import logging
 import uuid
 from urllib.parse import urlparse, urlunparse
+import ssl
 
 from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.client import ClientConnection, connect
@@ -47,6 +48,7 @@ class WSSocksClient(Relay):
         socks_wait_server: bool = True,
         reconnect: bool = True,
         reconnect_interval: float = 5,
+        ignore_ssl: bool = False,
         logger: Optional[logging.Logger] = None,
         **kw,
     ) -> None:
@@ -71,6 +73,7 @@ class WSSocksClient(Relay):
         self._reverse: bool = reverse
         self._reconnect: bool = reconnect
         self._reconnect_interval: float = reconnect_interval
+        self._ignore_ssl: bool = ignore_ssl
 
         self._socks_host: str = socks_host
         self._socks_port: int = socks_port
@@ -83,6 +86,13 @@ class WSSocksClient(Relay):
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
+
+    # SSL Context wrapper
+    def _unverified_ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
 
     async def wait_ready(self, timeout: Optional[float] = None) -> asyncio.Task:
         """Start the client and connect to the server within the specified timeout, then returns the Task."""
@@ -252,7 +262,7 @@ class WSSocksClient(Relay):
             while True:
                 try:
                     async with connect(
-                        self._ws_url, logger=self._log.getChild("ws")
+                        self._ws_url, logger=self._log.getChild("ws"), ssl=(self._unverified_ssl_context() if self._ignore_ssl else ssl.create_default_context())
                     ) as websocket:
                         self._websocket = websocket
 
@@ -364,7 +374,7 @@ class WSSocksClient(Relay):
             while True:
                 try:
                     async with connect(
-                        self._ws_url, logger=self._log.getChild("ws")
+                        self._ws_url, logger=self._log.getChild("ws"), ssl=(self._unverified_ssl_context() if self._ignore_ssl else ssl.create_default_context())
                     ) as websocket:
                         self._websocket = websocket
 
