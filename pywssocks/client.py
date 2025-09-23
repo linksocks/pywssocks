@@ -88,11 +88,17 @@ class WSSocksClient(Relay):
         self.disconnected = asyncio.Event()
 
     # SSL Context wrapper
-    def _unverified_ssl_context(self) -> ssl.SSLContext:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
+    def _ssl_context(self):
+        scheme = urlparse(self._ws_url).scheme
+        if scheme == "ws":
+            return None
+        elif scheme == "wss" and self._ignore_ssl:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            return ctx
+        else:
+            return ssl.create_default_context()
 
     async def wait_ready(self, timeout: Optional[float] = None) -> asyncio.Task:
         """Start the client and connect to the server within the specified timeout, then returns the Task."""
@@ -262,7 +268,7 @@ class WSSocksClient(Relay):
             while True:
                 try:
                     async with connect(
-                        self._ws_url, logger=self._log.getChild("ws"), ssl=(self._unverified_ssl_context() if self._ignore_ssl else ssl.create_default_context())
+                        self._ws_url, logger=self._log.getChild("ws"), ssl=self._ssl_context(),
                     ) as websocket:
                         self._websocket = websocket
 
@@ -374,7 +380,7 @@ class WSSocksClient(Relay):
             while True:
                 try:
                     async with connect(
-                        self._ws_url, logger=self._log.getChild("ws"), ssl=(self._unverified_ssl_context() if self._ignore_ssl else ssl.create_default_context())
+                        self._ws_url, logger=self._log.getChild("ws"), ssl=(self._ssl_context()),
                     ) as websocket:
                         self._websocket = websocket
 
