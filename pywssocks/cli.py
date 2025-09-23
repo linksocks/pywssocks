@@ -101,6 +101,14 @@ def cli():
     help="Specify connector token for reverse proxy",
 )
 @click.option("--debug", "-d", is_flag=True, default=False, help="Show debug logs")
+@click.option(
+    "--ignore-ssl",
+    "-k",
+    default=False,
+    is_flag=True,
+    help="Disable SSL validation"
+)
+
 def _client_cli(
     token: str,
     url: str,
@@ -114,6 +122,7 @@ def _client_cli(
     upstream_proxy: Optional[str],
     connector_token: Optional[str],
     debug: bool,
+    ignore_ssl: bool,
 ):
     """Start SOCKS5 over WebSocket proxy client"""
 
@@ -144,6 +153,7 @@ def _client_cli(
             upstream_proxy=upstream_host,
             upstream_username=upstream_username,
             upstream_password=upstream_password,
+            ignore_ssl=ignore_ssl,
         )
 
         task = await client.wait_ready()
