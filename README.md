@@ -1,4 +1,4 @@
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/linksocks/pywssocks/ci.yml?logo=github&label=Tests)](https://github.com/linksocks/pywssocks/actions) [![Codecov](https://img.shields.io/codecov/c/github/linksocks/pywssocks?logo=codecov&logoColor=white)](https://app.codecov.io/gh/linksocks/pywssocks/tree/main) ![Python Version](https://img.shields.io/badge/python_version-%3E%203.8-blue?logo=python&logoColor=white) [![PyPI - Version](https://img.shields.io/pypi/v/pywssocks?logo=pypi&logoColor=white)](https://pypi.org/project/pywssocks/) ![PyPI - Downloads](https://img.shields.io/pypi/dm/pywssocks?logo=pypi&logoColor=white) [![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks?logo=docker&logoColor=white)](https://hub.docker.com/r/jackzzs/pywssocks)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/linksocks/pywssocks/ci.yml?logo=github&label=Tests)](https://github.com/linksocks/pywssocks/actions) [![Codecov](https://img.shields.io/codecov/c/github/linksocks/pywssocks?logo=codecov&logoColor=white)](https://app.codecov.io/gh/linksocks/pywssocks/tree/main) ![Python Version](https://img.shields.io/badge/python_version-%3E%203.8-blue?logo=python&logoColor=white) [![PyPI - Version](https://img.shields.io/pypi/v/pywssocks?logo=pypi&logoColor=white)](https://pypi.org/project/pywssocks/) [![Docker Pulls](https://img.shields.io/docker/pulls/jackzzs/pywssocks?logo=docker&logoColor=white)](https://hub.docker.com/r/jackzzs/pywssocks) ![License](https://img.shields.io/github/license/linksocks/pywssocks)
 
 # Pywssocks
 
@@ -12,7 +12,7 @@ This tool allows you to securely expose SOCKS proxy services under Web Applicati
 
 For golang version, please check [linksocks/linksocks](https://github.com/linksocks/linksocks).
 
-> **Note**: **linksocks** is implemented in Go and also ships with a thin Python binding. **Pywssocks**, however, is written entirely in pure Python (no C extensions) and remains **minimally compatible with the latest linksocks protocol and feature set**.
+> **Note**: **LinkSocks** is implemented in Go and also ships with a thin Python binding. **Pywssocks**, however, is written entirely in pure Python (no C extensions) and remains **minimally compatible with the latest linksocks protocol and feature set**.
 
 ## Features
 
