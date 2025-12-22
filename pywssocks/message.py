@@ -1,6 +1,7 @@
 import uuid
 import gzip
 import io
+import json
 import struct
 from dataclasses import dataclass
 from typing import Optional
@@ -20,6 +21,8 @@ class BinaryType(IntEnum):
     DISCONNECT = 0x06
     CONNECTOR = 0x07
     CONNECTOR_RESPONSE = 0x08
+    LOG = 0x09
+    PARTNERS = 0x0A
 
 
 # Protocol types
@@ -43,6 +46,8 @@ TYPE_CONNECT_RESPONSE = "connect_response"
 TYPE_DISCONNECT = "disconnect"
 TYPE_CONNECTOR = "connector"
 TYPE_CONNECTOR_RESPONSE = "connector_response"
+TYPE_LOG = "log"
+TYPE_PARTNERS = "partners"
 
 # Compression flags
 DATA_COMPRESSION_NONE = 0x00
@@ -113,6 +118,7 @@ class DataMessage(BaseMessage):
 @dataclass
 class DisconnectMessage(BaseMessage):
     channel_id: uuid.UUID
+    error: Optional[str] = None
 
     def get_type(self) -> str:
         return TYPE_DISCONNECT
@@ -137,6 +143,23 @@ class ConnectorResponseMessage(BaseMessage):
 
     def get_type(self) -> str:
         return TYPE_CONNECTOR_RESPONSE
+
+
+@dataclass
+class LogMessage(BaseMessage):
+    level: str
+    msg: str
+
+    def get_type(self) -> str:
+        return TYPE_LOG
+
+
+@dataclass
+class PartnersMessage(BaseMessage):
+    count: int
+
+    def get_type(self) -> str:
+        return TYPE_PARTNERS
 
 
 # Helper functions for protocol conversion
@@ -246,6 +269,9 @@ def pack_message(msg: BaseMessage) -> bytes:
     elif isinstance(msg, DisconnectMessage):
         result.append(BinaryType.DISCONNECT)
         result.extend(msg.channel_id.bytes)
+        if msg.error:
+            result.append(len(msg.error))
+            result.extend(msg.error.encode())
 
     elif isinstance(msg, ConnectorMessage):
         result.append(BinaryType.CONNECTOR)
@@ -264,6 +290,18 @@ def pack_message(msg: BaseMessage) -> bytes:
         elif msg.success and msg.connector_token:
             result.append(len(msg.connector_token))
             result.extend(msg.connector_token.encode())
+
+    elif isinstance(msg, LogMessage):
+        result.append(BinaryType.LOG)
+        json_data = json.dumps({"level": msg.level, "msg": msg.msg}).encode()
+        result.extend(struct.pack(">I", len(json_data)))
+        result.extend(json_data)
+
+    elif isinstance(msg, PartnersMessage):
+        result.append(BinaryType.PARTNERS)
+        json_data = json.dumps({"count": msg.count}).encode()
+        result.extend(struct.pack(">I", len(json_data)))
+        result.extend(json_data)
 
     else:
         raise ValueError("Unsupported message type for binary serialization")
@@ -392,7 +430,14 @@ def parse_message(data: bytes) -> BaseMessage:
         if len(payload) < 16:  # ChannelID(16)
             raise ValueError("Invalid disconnect message")
         channel_id = uuid.UUID(bytes=payload[:16])
-        return DisconnectMessage(channel_id=channel_id)
+        error = None
+        if len(payload) > 16:
+            err_len = payload[16]
+            if len(payload) < 17 + err_len:
+                raise ValueError("Invalid disconnect message error length")
+            if err_len > 0:
+                error = payload[17 : 17 + err_len].decode()
+        return DisconnectMessage(channel_id=channel_id, error=error)
 
     elif msg_type == BinaryType.CONNECTOR:
         if len(payload) < 16:  # ChannelID(16)
@@ -437,6 +482,26 @@ def parse_message(data: bytes) -> BaseMessage:
             error=error,
             connector_token=connector_token,
         )
+
+    elif msg_type == BinaryType.LOG:
+        if len(payload) < 4:  # DataLen(4)
+            raise ValueError("Invalid log message")
+        data_len = struct.unpack(">I", payload[:4])[0]
+        if len(payload) < 4 + data_len:
+            raise ValueError("Invalid log message length")
+        json_data = payload[4 : 4 + data_len]
+        parsed = json.loads(json_data.decode())
+        return LogMessage(level=parsed.get("level", ""), msg=parsed.get("msg", ""))
+
+    elif msg_type == BinaryType.PARTNERS:
+        if len(payload) < 4:  # DataLen(4)
+            raise ValueError("Invalid partners message")
+        data_len = struct.unpack(">I", payload[:4])[0]
+        if len(payload) < 4 + data_len:
+            raise ValueError("Invalid partners message length")
+        json_data = payload[4 : 4 + data_len]
+        parsed = json.loads(json_data.decode())
+        return PartnersMessage(count=parsed.get("count", 0))
 
     else:
         raise ValueError(f"Unknown binary message type: {msg_type}")

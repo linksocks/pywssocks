@@ -29,6 +29,8 @@ from .message import (
     parse_message,
     ConnectorMessage,
     ConnectorResponseMessage,
+    LogMessage,
+    PartnersMessage,
 )
 
 _default_logger = logging.getLogger(__name__)
@@ -797,6 +799,7 @@ class WSSocksServer(Relay):
                 self.log_message(response_msg, "send")
                 await websocket.send(pack_message(response_msg))
                 self._log.info(f"Reverse client {client_id} authenticated")
+                await self._broadcast_partners_to_connectors()
 
             elif not reverse and token in self._forward_tokens:  # forward proxy
                 client_id = uuid4()
@@ -808,6 +811,7 @@ class WSSocksServer(Relay):
 
             elif not reverse and token in self._connector_tokens:  # connector proxy
                 client_id = uuid4()
+                reverse_token = self._connector_tokens[token]
 
                 # Add to token clients
                 if token not in self._token_clients:
@@ -819,6 +823,18 @@ class WSSocksServer(Relay):
                 self.log_message(response_msg, "send")
                 await websocket.send(pack_message(response_msg))
                 self._log.info(f"Connector client {client_id} authenticated")
+
+                # Notify reverse clients about new connector
+                await self._broadcast_partners_to_reverse_clients(reverse_token)
+
+                # Send initial partners count to connector
+                reverse_count = 0
+                for t in self._tokens:
+                    if t in self._token_clients:
+                        reverse_count += len(self._token_clients[t])
+                initial_partners_msg = PartnersMessage(count=reverse_count)
+                self.log_message(initial_partners_msg, "send")
+                await websocket.send(pack_message(initial_partners_msg))
 
             else:
                 response_msg = AuthResponseMessage(success=False, error="Invalid token")
@@ -884,6 +900,13 @@ class WSSocksServer(Relay):
         if not client_id or not token:
             return
 
+        # Determine if this is a reverse or connector token for broadcasting
+        is_reverse_token = token in self._tokens
+        is_connector_token = token in self._connector_tokens
+        reverse_token_for_connector = (
+            self._connector_tokens.get(token) if is_connector_token else None
+        )
+
         # Clean up _token_clients
         if token in self._token_clients:
             self._token_clients[token] = [
@@ -901,6 +924,12 @@ class WSSocksServer(Relay):
             del self._clients[client_id]
 
         self._log.debug(f"Cleaned up resources for client {client_id}.")
+
+        # Broadcast partner updates after cleanup
+        if is_reverse_token:
+            await self._broadcast_partners_to_connectors()
+        elif is_connector_token and reverse_token_for_connector:
+            await self._broadcast_partners_to_reverse_clients(reverse_token_for_connector)
 
     async def _ws_heartbeat(self, websocket: ServerConnection, client_id: UUID) -> None:
         """WebSocket heartbeat check"""
@@ -1220,3 +1249,43 @@ class WSSocksServer(Relay):
         # Clean up channel
         await self._conn_cache.remove_channel(channel_id)
         self.disconnect_channel(str(channel_id))
+
+    async def _broadcast_partners_to_connectors(self) -> None:
+        """Send the current number of reverse clients to all connectors"""
+        reverse_count = 0
+        for token in self._tokens:
+            if token in self._token_clients:
+                reverse_count += len(self._token_clients[token])
+
+        partners_msg = PartnersMessage(count=reverse_count)
+
+        for connector_token in self._connector_tokens:
+            if connector_token in self._token_clients:
+                for _, ws in self._token_clients[connector_token]:
+                    try:
+                        self.log_message(partners_msg, "send")
+                        await ws.send(pack_message(partners_msg))
+                    except Exception as e:
+                        self._log.debug(
+                            f"Failed to send partners update to connector: {e}"
+                        )
+
+    async def _broadcast_partners_to_reverse_clients(self, reverse_token: str) -> None:
+        """Send the current number of connectors to all reverse clients for a given token"""
+        connector_count = 0
+        for connector_token, rt in self._connector_tokens.items():
+            if rt == reverse_token:
+                if connector_token in self._token_clients:
+                    connector_count += len(self._token_clients[connector_token])
+
+        partners_msg = PartnersMessage(count=connector_count)
+
+        if reverse_token in self._token_clients:
+            for _, ws in self._token_clients[reverse_token]:
+                try:
+                    self.log_message(partners_msg, "send")
+                    await ws.send(pack_message(partners_msg))
+                except Exception as e:
+                    self._log.debug(
+                        f"Failed to send partners update to reverse client: {e}"
+                    )

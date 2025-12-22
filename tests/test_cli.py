@@ -17,7 +17,8 @@ os.environ["PYTHONUNBUFFERED"] = "1"
 @contextlib.contextmanager
 def forward_proxy(socks_auth=None):
     """Create forward proxy server and client processes with optional SOCKS auth"""
-
+    server_process = None
+    client_process = None
     try:
         ws_port = get_free_port()
         socks_port = get_free_port()
@@ -55,22 +56,27 @@ def forward_proxy(socks_auth=None):
 
         yield server_process, client_process, ws_port, socks_port
     finally:
-        server_process.terminate()
-        client_process.terminate()
+        if server_process:
+            server_process.terminate()
+        if client_process:
+            client_process.terminate()
 
-        server_output = server_process.stderr.read().decode()
-        if hasattr(server_process, "stderr_hist"):
-            server_output = "\n".join(server_process.stderr_hist) + "\n" + server_output
+        if server_process:
+            server_output = server_process.stderr.read().decode()
+            if hasattr(server_process, "stderr_hist"):
+                server_output = "\n".join(server_process.stderr_hist) + "\n" + server_output
+            print(f"Server Output:\n{server_output}", file=sys.stderr)
 
-        client_output = client_process.stderr.read().decode()
-        if hasattr(client_process, "stderr_hist"):
-            client_output = "\n".join(client_process.stderr_hist) + "\n" + client_output
+        if client_process:
+            client_output = client_process.stderr.read().decode()
+            if hasattr(client_process, "stderr_hist"):
+                client_output = "\n".join(client_process.stderr_hist) + "\n" + client_output
+            print(f"Client Output:\n{client_output}", file=sys.stderr)
 
-        print(f"Server Output:\n{server_output}", file=sys.stderr)
-        print(f"Client Output:\n{client_output}", file=sys.stderr)
-
-        server_process.wait()
-        client_process.wait()
+        if server_process:
+            server_process.wait()
+        if client_process:
+            client_process.wait()
 
 
 @contextlib.contextmanager
@@ -82,6 +88,8 @@ def reverse_proxy(socks_auth=None, connector_token=None, connector_autonomy=None
         connector_token: Optional connector token for the server
         connector_autonomy: Optional connector token to be used by client when autonomy is enabled
     """
+    server_process = None
+    client_process = None
     try:
         ws_port = get_free_port()
         socks_port = get_free_port()
@@ -139,22 +147,27 @@ def reverse_proxy(socks_auth=None, connector_token=None, connector_autonomy=None
         yield server_process, client_process, ws_port, socks_port
 
     finally:
-        server_process.terminate()
-        client_process.terminate()
+        if server_process:
+            server_process.terminate()
+        if client_process:
+            client_process.terminate()
 
-        server_output = server_process.stderr.read().decode()
-        if hasattr(server_process, "stderr_hist"):
-            server_output = "\n".join(server_process.stderr_hist) + "\n" + server_output
+        if server_process:
+            server_output = server_process.stderr.read().decode()
+            if hasattr(server_process, "stderr_hist"):
+                server_output = "\n".join(server_process.stderr_hist) + "\n" + server_output
+            print(f"Server Output:\n{server_output}", file=sys.stderr)
 
-        client_output = client_process.stderr.read().decode()
-        if hasattr(client_process, "stderr_hist"):
-            client_output = "\n".join(client_process.stderr_hist) + "\n" + client_output
+        if client_process:
+            client_output = client_process.stderr.read().decode()
+            if hasattr(client_process, "stderr_hist"):
+                client_output = "\n".join(client_process.stderr_hist) + "\n" + client_output
+            print(f"Client Output:\n{client_output}", file=sys.stderr)
 
-        print(f"Server Output:\n{server_output}", file=sys.stderr)
-        print(f"Client Output:\n{client_output}", file=sys.stderr)
-
-        server_process.wait()
-        client_process.wait()
+        if server_process:
+            server_process.wait()
+        if client_process:
+            client_process.wait()
 
 
 def wait_for_output(process, text, timeout=6):

@@ -22,6 +22,8 @@ from .message import (
     ConnectorMessage,
     ConnectorResponseMessage,
     DisconnectMessage,
+    LogMessage,
+    PartnersMessage,
 )
 
 
@@ -86,6 +88,7 @@ class WSSocksClient(Relay):
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
+        self.num_partners: int = 0
 
     # SSL Context wrapper
     def _ssl_context(self):
@@ -181,11 +184,29 @@ class WSSocksClient(Relay):
                     if connect_id in self._message_queues:
                         await self._message_queues[connect_id].put(msg)
                 elif isinstance(msg, DisconnectMessage):
+                    if msg.error:
+                        self._log.debug(
+                            f"Disconnected by remote: {msg.channel_id}, reason: {msg.error}"
+                        )
+                    else:
+                        self._log.debug(f"Disconnected: {msg.channel_id}")
                     self.disconnect_channel(str(msg.channel_id))
                 elif isinstance(msg, ConnectorResponseMessage):
                     connect_id = str(msg.channel_id)
                     if connect_id in self._message_queues:
                         await self._message_queues[connect_id].put(msg)
+                elif isinstance(msg, LogMessage):
+                    log_func = {
+                        "trace": self._log.debug,
+                        "debug": self._log.debug,
+                        "info": self._log.info,
+                        "warn": self._log.warning,
+                        "error": self._log.error,
+                    }.get(msg.level, self._log.debug)
+                    log_func(f"[Server] {msg.msg}")
+                elif isinstance(msg, PartnersMessage):
+                    self.num_partners = msg.count
+                    self._log.debug(f"Updated partners count: {msg.count}")
                 else:
                     self._log.warning(
                         f"Received unknown message type: {msg.__class__.__name__}."
