@@ -268,7 +268,9 @@ class WSSocksClient(Relay):
             while True:
                 try:
                     async with connect(
-                        self._ws_url, logger=self._log.getChild("ws"), ssl=self._ssl_context(),
+                        self._ws_url,
+                        logger=self._log.getChild("ws"),
+                        ssl=self._ssl_context(),
                     ) as websocket:
                         self._websocket = websocket
 
@@ -380,7 +382,9 @@ class WSSocksClient(Relay):
             while True:
                 try:
                     async with connect(
-                        self._ws_url, logger=self._log.getChild("ws"), ssl=(self._ssl_context()),
+                        self._ws_url,
+                        logger=self._log.getChild("ws"),
+                        ssl=(self._ssl_context()),
                     ) as websocket:
                         self._websocket = websocket
 

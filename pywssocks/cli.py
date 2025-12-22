@@ -102,13 +102,8 @@ def cli():
 )
 @click.option("--debug", "-d", is_flag=True, default=False, help="Show debug logs")
 @click.option(
-    "--ignore-ssl",
-    "-k",
-    default=False,
-    is_flag=True,
-    help="Disable SSL validation"
+    "--ignore-ssl", "-k", default=False, is_flag=True, help="Disable SSL validation"
 )
-
 def _client_cli(
     token: str,
     url: str,
