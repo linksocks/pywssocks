@@ -33,7 +33,9 @@ Both `server` and `client` commands support a variety of options to customize th
 - `--socks-username`, `-n`: SOCKS5 username for authentication.
 - `--socks-password`, `-w`: SOCKS5 password for authentication.
 - `--socks-nowait`, `-i`: Start the SOCKS server immediately without waiting.
-- `--no-reconnect`, `-R`: Disable automatic reconnection when the server disconnects.
+- `--upstream-proxy`, `-x`: Upstream SOCKS5 proxy (e.g., `socks5://user:pass@127.0.0.1:1080`).
+- `--connector-token`, `-c`: Specify connector token for reverse proxy.
+- `--connector-autonomy`, `-a`: Allow connector clients to manage their own tokens.
 
 ### Client-Specific Options
 
@@ -45,6 +47,9 @@ Both `server` and `client` commands support a variety of options to customize th
 - `--socks-password`, `-w`: SOCKS5 authentication password.
 - `--socks-no-wait`, `-i`: Start the SOCKS server immediately without waiting.
 - `--no-reconnect`, `-R`: Disable automatic reconnection when the server disconnects.
+- `--upstream-proxy`, `-x`: Upstream SOCKS5 proxy (e.g., `socks5://user:pass@127.0.0.1:1080`).
+- `--connector-token`, `-c`: Specify connector token for reverse proxy.
+- `--ignore-ssl`, `-k`: Disable SSL validation.
 
 ## Examples
 

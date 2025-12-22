@@ -35,7 +35,7 @@ token = server.add_forward_token()
 print(f"Token: {token}")
 
 # Start the server
-asyncio.run(server.start())
+asyncio.run(server.serve())
 ```
 
 **Client Side:**
@@ -53,7 +53,7 @@ client = WSSocksClient(
 )
 
 # Start the client
-asyncio.run(client.start())
+asyncio.run(client.connect())
 ```
 
 !!! note
@@ -83,7 +83,7 @@ token, port = server.add_reverse_token()
 print(f"Token: {token}\nPort: {port}")
 
 # Start the server
-asyncio.run(server.start())
+asyncio.run(server.serve())
 ```
 
 **Client Side:**
@@ -100,7 +100,7 @@ client = WSSocksClient(
 )
 
 # Start the client
-asyncio.run(client.start())
+asyncio.run(client.connect())
 ```
 
 ## Advanced Features
