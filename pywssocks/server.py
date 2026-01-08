@@ -929,7 +929,9 @@ class WSSocksServer(Relay):
         if is_reverse_token:
             await self._broadcast_partners_to_connectors()
         elif is_connector_token and reverse_token_for_connector:
-            await self._broadcast_partners_to_reverse_clients(reverse_token_for_connector)
+            await self._broadcast_partners_to_reverse_clients(
+                reverse_token_for_connector
+            )
 
     async def _ws_heartbeat(self, websocket: ServerConnection, client_id: UUID) -> None:
         """WebSocket heartbeat check"""
