@@ -833,7 +833,9 @@ class WSSocksServer(Relay):
                 if socks_port not in self._socks_tasks and socks_port > 0:
                     ready_event = asyncio.Event()
                     self._socks_tasks[socks_port] = asyncio.create_task(
-                        self._run_socks_server(token, socks_port, ready_event=ready_event)
+                        self._run_socks_server(
+                            token, socks_port, ready_event=ready_event
+                        )
                     )
                     try:
                         await asyncio.wait_for(ready_event.wait(), timeout=3)
