@@ -433,8 +433,16 @@ class WSSocksClient(Relay):
                             for task in tasks:
                                 task.cancel()
                             await asyncio.gather(*tasks, return_exceptions=True)
-                except ConnectionClosed:
-                    if self._reconnect:
+                except ConnectionClosed as e:
+                    # Check if connection was closed due to token removal or invalid token
+                    # Code 1000: Normal closure (Token removed)
+                    # Code 1008: Policy violation (Invalid token)
+                    if e.rcvd and e.rcvd.code in (1000, 1008):
+                        self._log.error(
+                            f"WebSocket connection closed: {e.rcvd.reason}. Exiting..."
+                        )
+                        break
+                    elif self._reconnect:
                         self._log.error(
                             "WebSocket connection closed. Retrying in 5 seconds..."
                         )
@@ -536,8 +544,16 @@ class WSSocksClient(Relay):
                                 task.cancel()
                             await asyncio.gather(*tasks, return_exceptions=True)
 
-                except ConnectionClosed:
-                    if self._reconnect:
+                except ConnectionClosed as e:
+                    # Check if connection was closed due to token removal or invalid token
+                    # Code 1000: Normal closure (Token removed)
+                    # Code 1008: Policy violation (Invalid token)
+                    if e.rcvd and e.rcvd.code in (1000, 1008):
+                        self._log.error(
+                            f"WebSocket connection closed: {e.rcvd.reason}. Exiting..."
+                        )
+                        break
+                    elif self._reconnect:
                         self._log.error(
                             "WebSocket connection closed. Retrying in 5 seconds..."
                         )

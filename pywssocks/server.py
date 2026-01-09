@@ -1198,6 +1198,12 @@ class WSSocksServer(Relay):
                     )
                     socks_handler_tasks.add(handler_task)
                     handler_task.add_done_callback(socks_handler_tasks.discard)
+                except OSError as e:
+                    # Socket closed or invalid, exit loop
+                    self._log.debug(
+                        f"SOCKS server socket closed: {e.__class__.__name__}: {e}"
+                    )
+                    break
                 except Exception as e:
                     self._log.error(
                         f"Error accepting SOCKS connection: {e.__class__.__name__}: {e}"
