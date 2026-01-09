@@ -443,7 +443,8 @@ class Relay:
                 )
             else:
                 # Direct connection
-                # Determine address family based on address format
+                # Determine address family and resolved address based on address format
+                connect_address = request_msg.address
                 try:
                     socket.inet_pton(socket.AF_INET6, request_msg.address)
                     addr_family = socket.AF_INET6
@@ -460,16 +461,19 @@ class Relay:
                                 proto=socket.IPPROTO_TCP,
                             )
                             addr_family = addrinfo[0][0]
+                            # Use the resolved address from getaddrinfo to avoid
+                            # address family mismatch on Windows (WinError 10022)
+                            connect_address = addrinfo[0][4][0]
                         except socket.gaierror as e:
                             raise Exception(f"Failed to resolve address: {e}")
 
                 remote_socket = socket.socket(addr_family, socket.SOCK_STREAM)
                 remote_socket.setblocking(False)
                 self._log.debug(
-                    f"Attempting direct TCP connection to: {request_msg.address}:{request_msg.port}"
+                    f"Attempting direct TCP connection to: {connect_address}:{request_msg.port} (original: {request_msg.address})"
                 )
                 await loop.sock_connect(
-                    remote_socket, (request_msg.address, request_msg.port)
+                    remote_socket, (connect_address, request_msg.port)
                 )
 
             response_msg = ConnectResponseMessage(
