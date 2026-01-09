@@ -354,6 +354,39 @@ class WSSocksServer(Relay):
         self._log.info("New connector token added.")
         return connector_token
 
+    def remove_connector_token(self, connector_token: str) -> bool:
+        """Remove a connector token and disconnect all its clients
+
+        Args:
+            connector_token: The connector token to remove
+
+        Returns:
+            bool: True if token was found and removed, False otherwise
+        """
+        if connector_token not in self._connector_tokens:
+            return False
+
+        # Clean up connector cache
+        if self._loop:
+            self._loop.create_task(self._conn_cache.cleanup_token(connector_token))
+
+        # Close all client connections for this token
+        if connector_token in self._token_clients:
+            for client_id, ws in self._token_clients[connector_token]:
+                if self._loop:
+                    try:
+                        self._loop.create_task(ws.close(1000, "Token removed"))
+                    except:
+                        pass
+                if client_id in self._clients:
+                    del self._clients[client_id]
+            del self._token_clients[connector_token]
+
+        # Remove the connector token
+        del self._connector_tokens[connector_token]
+        self._log.info(f"Connector token {connector_token} removed.")
+        return True
+
     def add_reverse_token(
         self,
         token: Optional[str] = None,
