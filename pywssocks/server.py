@@ -210,6 +210,11 @@ class SocketManager:
                 )
                 await self._close_socket(sock)
                 del self._sockets[port]
+            else:
+                # Socket was reused during grace period
+                self._log.debug(
+                    f"Socket on port {port} was reused during grace period (refs: {refs})"
+                )
 
     async def close(self) -> None:
         """Close all sockets and cancel cleanup tasks."""
