@@ -64,13 +64,17 @@ def forward_proxy(socks_auth=None):
         if server_process:
             server_output = server_process.stderr.read().decode()
             if hasattr(server_process, "stderr_hist"):
-                server_output = "\n".join(server_process.stderr_hist) + "\n" + server_output
+                server_output = (
+                    "\n".join(server_process.stderr_hist) + "\n" + server_output
+                )
             print(f"Server Output:\n{server_output}", file=sys.stderr)
 
         if client_process:
             client_output = client_process.stderr.read().decode()
             if hasattr(client_process, "stderr_hist"):
-                client_output = "\n".join(client_process.stderr_hist) + "\n" + client_output
+                client_output = (
+                    "\n".join(client_process.stderr_hist) + "\n" + client_output
+                )
             print(f"Client Output:\n{client_output}", file=sys.stderr)
 
         if server_process:
@@ -155,13 +159,17 @@ def reverse_proxy(socks_auth=None, connector_token=None, connector_autonomy=None
         if server_process:
             server_output = server_process.stderr.read().decode()
             if hasattr(server_process, "stderr_hist"):
-                server_output = "\n".join(server_process.stderr_hist) + "\n" + server_output
+                server_output = (
+                    "\n".join(server_process.stderr_hist) + "\n" + server_output
+                )
             print(f"Server Output:\n{server_output}", file=sys.stderr)
 
         if client_process:
             client_output = client_process.stderr.read().decode()
             if hasattr(client_process, "stderr_hist"):
-                client_output = "\n".join(client_process.stderr_hist) + "\n" + client_output
+                client_output = (
+                    "\n".join(client_process.stderr_hist) + "\n" + client_output
+                )
             print(f"Client Output:\n{client_output}", file=sys.stderr)
 
         if server_process:
