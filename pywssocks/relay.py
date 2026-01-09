@@ -104,12 +104,16 @@ class Relay:
         """
         self._connection_success_map[channel_id] = True
 
-    def disconnect_channel(self, channel_id: str) -> None:
+    def disconnect_channel(self, channel_id: str, delay: float = 5.0) -> None:
         """Disconnect and cleanup resources for a specific channel.
 
         Args:
             channel_id: The channel ID to disconnect and cleanup.
+            delay: Delay in seconds before cleaning up message queue to handle
+                   late-arriving packets. Defaults to 5.0 seconds.
         """
+        self._log.debug(f"Disconnecting channel: {channel_id}")
+
         # Cancel TCP tasks if they exist
         if channel_id in self._tcp_tasks:
             task = self._tcp_tasks.pop(channel_id)
@@ -126,15 +130,28 @@ class Relay:
         if channel_id in self._udp_client_addrs:
             del self._udp_client_addrs[channel_id]
 
-        # Clean up message queues
-        if channel_id in self._message_queues:
-            del self._message_queues[channel_id]
-
         # Clean up connection success status
         if channel_id in self._connection_success_map:
             del self._connection_success_map[channel_id]
 
-        self._log.debug(f"Disconnected and cleaned up channel: {channel_id}")
+        # Delay cleanup of message queue to handle late-arriving packets
+        if delay > 0 and channel_id in self._message_queues:
+            asyncio.create_task(self._delayed_queue_cleanup(channel_id, delay))
+        elif channel_id in self._message_queues:
+            del self._message_queues[channel_id]
+            self._log.debug(f"Cleaned up channel: {channel_id}")
+
+    async def _delayed_queue_cleanup(self, channel_id: str, delay: float) -> None:
+        """Cleanup message queue after a delay to handle late-arriving packets.
+
+        Args:
+            channel_id: The channel ID to cleanup.
+            delay: Delay in seconds before cleanup.
+        """
+        await asyncio.sleep(delay)
+        if channel_id in self._message_queues:
+            del self._message_queues[channel_id]
+            self._log.debug(f"Cleaned up channel after delay: {channel_id}")
 
     def log_message(self, msg, direction: str) -> None:
         """Log WebSocket message details at debug level.
@@ -499,8 +516,15 @@ class Relay:
         finally:
             if remote_socket:
                 remote_socket.close()
-            if str(request_msg.channel_id) in self._message_queues:
-                del self._message_queues[str(request_msg.channel_id)]
+            # Send disconnect message to notify the other side
+            try:
+                disconnect_msg = DisconnectMessage(channel_id=request_msg.channel_id)
+                self.log_message(disconnect_msg, "send")
+                await websocket.send(pack_message(disconnect_msg))
+            except Exception:
+                pass
+            # Use delayed cleanup to handle late-arriving packets
+            self.disconnect_channel(str(request_msg.channel_id))
 
     async def _handle_udp_connection(
         self, websocket: Connection, request_msg: ConnectMessage
@@ -539,8 +563,15 @@ class Relay:
         finally:
             if local_socket:
                 local_socket.close()
-            if str(request_msg.channel_id) in self._message_queues:
-                del self._message_queues[str(request_msg.channel_id)]
+            # Send disconnect message to notify the other side
+            try:
+                disconnect_msg = DisconnectMessage(channel_id=request_msg.channel_id)
+                self.log_message(disconnect_msg, "send")
+                await websocket.send(pack_message(disconnect_msg))
+            except Exception:
+                pass
+            # Use delayed cleanup to handle late-arriving packets
+            self.disconnect_channel(str(request_msg.channel_id))
 
     async def _udp_to_websocket(
         self, websocket: Connection, udp_socket: socket.socket, channel_id: str
