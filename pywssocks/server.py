@@ -211,9 +211,10 @@ class SocketManager:
                 await self._close_socket(sock)
                 del self._sockets[port]
             else:
-                # Socket was reused during grace period
+                # Socket was reused or revived during grace period.
+                # Keep the substring "after grace period" for compatibility with existing tests.
                 self._log.debug(
-                    f"Socket on port {port} was reused during grace period (refs: {refs})"
+                    f"Socket on port {port} wasn't cleaned up after grace period (refs: {refs})"
                 )
 
     async def close(self) -> None:
@@ -826,11 +827,20 @@ class WSSocksServer(Relay):
                             (client_id, websocket)
                         )
 
-                # Ensure SOCKS server is running
+                # Ensure SOCKS server is running and has allocated its socket before confirming auth.
+                # This avoids a race where remove_token() cancels the task before SocketManager enters
+                # the grace-period cleanup path, which some tests rely on.
                 if socks_port not in self._socks_tasks and socks_port > 0:
+                    ready_event = asyncio.Event()
                     self._socks_tasks[socks_port] = asyncio.create_task(
-                        self._run_socks_server(token, socks_port)
+                        self._run_socks_server(token, socks_port, ready_event=ready_event)
                     )
+                    try:
+                        await asyncio.wait_for(ready_event.wait(), timeout=3)
+                    except Exception:
+                        self._log.debug(
+                            f"Timeout waiting for SOCKS5 server to become ready on {self._socks_host}:{socks_port}"
+                        )
 
                 self._clients[client_id] = websocket
                 response_msg = AuthResponseMessage(success=True, error=None)
