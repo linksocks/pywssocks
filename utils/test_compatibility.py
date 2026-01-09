@@ -282,46 +282,62 @@ class TestRunner:
         except Exception as e:
             print(f"Could not check linksocks help: {e}")
 
-    def make_api_request(self, base_url: str, api_key: str, method: str, path: str, json_data: dict = None) -> dict:
+    def make_api_request(
+        self,
+        base_url: str,
+        api_key: str,
+        method: str,
+        path: str,
+        json_data: dict = None,
+    ) -> dict:
         """Make HTTP API request to linksocks/pywssocks server"""
         import requests
-        
+
         url = base_url.rstrip("/") + path
         headers = {
             "X-API-Key": api_key,
             "Content-Type": "application/json",
         }
-        
+
         try:
             if method == "POST":
-                response = requests.post(url, headers=headers, json=json_data, timeout=10)
+                response = requests.post(
+                    url, headers=headers, json=json_data, timeout=10
+                )
             elif method == "DELETE":
                 response = requests.delete(url, headers=headers, timeout=10)
             elif method == "GET":
                 response = requests.get(url, headers=headers, timeout=10)
             else:
                 raise ValueError(f"Unsupported method: {method}")
-            
+
             response.raise_for_status()
             return response.json()
         except Exception as e:
             print(f"API request failed: {method} {url} - {e}")
             raise
 
-    def create_connector_token_via_api(self, base_url: str, api_key: str, reverse_token: str) -> str:
+    def create_connector_token_via_api(
+        self, base_url: str, api_key: str, reverse_token: str
+    ) -> str:
         """Create connector token via HTTP API"""
         result = self.make_api_request(
-            base_url, api_key, "POST", "/api/token",
-            {"type": "connector", "reverse_token": reverse_token}
+            base_url,
+            api_key,
+            "POST",
+            "/api/token",
+            {"type": "connector", "reverse_token": reverse_token},
         )
-        
+
         if not result.get("success"):
-            raise RuntimeError(f"Failed to create connector token: {result.get('error')}")
-        
+            raise RuntimeError(
+                f"Failed to create connector token: {result.get('error')}"
+            )
+
         token = result.get("token")
         if not token:
             raise RuntimeError("API did not return connector token")
-        
+
         return token
 
     def check_port_available(self, port: int) -> bool:
@@ -429,10 +445,14 @@ class TestRunner:
         return proc, port, socks_port
 
     def start_pywssocks_client(
-        self, ws_url: str, socks_port: int = None, reverse: bool = False, token: str = None
+        self,
+        ws_url: str,
+        socks_port: int = None,
+        reverse: bool = False,
+        token: str = None,
     ) -> Tuple[subprocess.Popen, int]:
         """Start pywssocks client and return process and actual SOCKS port used
-        
+
         Args:
             ws_url: WebSocket URL to connect to
             socks_port: SOCKS port to listen on (for forward proxy)
@@ -509,7 +529,11 @@ class TestRunner:
         return proc, socks_port
 
     def start_linksocks_server(
-        self, port: int = None, socks_port: int = None, reverse: bool = False, api_key: str = None
+        self,
+        port: int = None,
+        socks_port: int = None,
+        reverse: bool = False,
+        api_key: str = None,
     ) -> Tuple[subprocess.Popen, int, int, Optional[str]]:
         """Start linksocks server and return process, ws_port, socks_port, and api_key (None if not using API)"""
         if port is None:
@@ -582,10 +606,14 @@ class TestRunner:
         return proc, port, socks_port or 0, api_key
 
     def start_linksocks_client(
-        self, ws_url: str, socks_port: int = None, reverse: bool = False, token: str = None
+        self,
+        ws_url: str,
+        socks_port: int = None,
+        reverse: bool = False,
+        token: str = None,
     ) -> Tuple[subprocess.Popen, int]:
         """Start linksocks client and return process and actual SOCKS port used
-        
+
         Args:
             ws_url: WebSocket URL to connect to
             socks_port: SOCKS port to listen on (for forward proxy)
@@ -604,31 +632,33 @@ class TestRunner:
 
         # Check if URL already contains token parameter
         parsed_url = urlparse(ws_url)
-        url_has_token = 'token=' in parsed_url.query
-        
+        url_has_token = "token=" in parsed_url.query
+
         # Determine which token to use
         if token is None and not url_has_token:
             # Use default TEST_TOKEN if no token specified and URL doesn't have one
             token = TEST_TOKEN
-        
+
         # Based on cli.go, linksocks client uses these flags:
         # -t for token, -u for url, -s for socks-host, -p for socks-port, -r for reverse
         cmd = [
             str(self.linksocks_path),
             "client",
         ]
-        
+
         # Always add -t flag if we have a token
         # (linksocks needs token via -t even if URL has token parameter for connector mode)
         if token:
             cmd.extend(["-t", token])
-        
-        cmd.extend([
-            "-u",
-            ws_url,
-            "--no-env-proxy",
-            "-dd",
-        ])
+
+        cmd.extend(
+            [
+                "-u",
+                ws_url,
+                "--no-env-proxy",
+                "-dd",
+            ]
+        )
 
         if not reverse:
             cmd.extend(["-s", "127.0.0.1", "-p", str(socks_port)])
@@ -717,7 +747,9 @@ class TestRunner:
         print("- pywssocks supports BOTH methods:")
         print("  1. URL query parameters (for linksocks compatibility)")
         print("  2. Binary WebSocket messages (native pywssocks protocol)")
-        print("- pywssocks automatically detects and handles both authentication methods")
+        print(
+            "- pywssocks automatically detects and handles both authentication methods"
+        )
         print("")
         print("CONNECTOR MODE LIMITATIONS:")
         print("- Connector mode requires API/library support for token management")
@@ -863,7 +895,9 @@ class TestRunner:
         try:
             # Start linksocks reverse server
             print("1. Starting linksocks reverse server...")
-            server_proc, ws_port, socks_port, _ = self.start_linksocks_server(reverse=True)
+            server_proc, ws_port, socks_port, _ = self.start_linksocks_server(
+                reverse=True
+            )
             print(
                 f"   Server started on WebSocket port: {ws_port}, SOCKS port: {socks_port}"
             )
@@ -898,19 +932,31 @@ class TestRunner:
                 proc.terminate()
             self.processes.clear()
 
-    def test_connector_pywssocks_server_pywssocks_provider_linksocks_connector(self) -> bool:
+    def test_connector_pywssocks_server_pywssocks_provider_linksocks_connector(
+        self,
+    ) -> bool:
         """Test connector mode: pywssocks server + pywssocks provider + linksocks connector"""
         print("\n" + "=" * 60)
-        print("Test 5: Connector (Pywssocks Server + Pywssocks Provider + Linksocks Connector)")
+        print(
+            "Test 5: Connector (Pywssocks Server + Pywssocks Provider + Linksocks Connector)"
+        )
         print("=" * 60)
-        print("Architecture: Linksocks Connector -> Pywssocks Server <- Pywssocks Provider")
+        print(
+            "Architecture: Linksocks Connector -> Pywssocks Server <- Pywssocks Provider"
+        )
 
         try:
             # Start pywssocks server in reverse mode with connector token
-            print("1. Starting pywssocks reverse server (broker) with connector token...")
+            print(
+                "1. Starting pywssocks reverse server (broker) with connector token..."
+            )
             connector_token = "test_connector_token"
-            server_proc, ws_port, socks_port = self.start_pywssocks_server(reverse=True, connector_token=connector_token)
-            print(f"   Server started on WebSocket port: {ws_port}, SOCKS port: {socks_port}")
+            server_proc, ws_port, socks_port = self.start_pywssocks_server(
+                reverse=True, connector_token=connector_token
+            )
+            print(
+                f"   Server started on WebSocket port: {ws_port}, SOCKS port: {socks_port}"
+            )
             print(f"   Connector token: {connector_token}")
             time.sleep(2)
 
@@ -923,7 +969,9 @@ class TestRunner:
 
             # Start linksocks connector client with connector token
             print("3. Starting linksocks connector client...")
-            connector_ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={connector_token}"
+            connector_ws_url = (
+                f"ws://127.0.0.1:{ws_port}/socket?token={connector_token}"
+            )
             connector_proc, connector_socks_port = self.start_linksocks_client(
                 connector_ws_url, socks_port=None, reverse=False, token=connector_token
             )
@@ -944,6 +992,7 @@ class TestRunner:
         except Exception as e:
             print(f"❌ Connector test exception: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -952,32 +1001,48 @@ class TestRunner:
                 proc.terminate()
             self.processes.clear()
 
-    def test_connector_pywssocks_server_linksocks_provider_linksocks_connector(self) -> bool:
+    def test_connector_pywssocks_server_linksocks_provider_linksocks_connector(
+        self,
+    ) -> bool:
         """Test connector mode: pywssocks server + linksocks provider + linksocks connector"""
         print("\n" + "=" * 60)
-        print("Test 6: Connector (Pywssocks Server + Linksocks Provider + Linksocks Connector)")
+        print(
+            "Test 6: Connector (Pywssocks Server + Linksocks Provider + Linksocks Connector)"
+        )
         print("=" * 60)
-        print("Architecture: Linksocks Connector -> Pywssocks Server <- Linksocks Provider")
+        print(
+            "Architecture: Linksocks Connector -> Pywssocks Server <- Linksocks Provider"
+        )
 
         try:
             # Start pywssocks server in reverse mode with connector token
-            print("1. Starting pywssocks reverse server (broker) with connector token...")
+            print(
+                "1. Starting pywssocks reverse server (broker) with connector token..."
+            )
             connector_token = "test_connector_token"
-            server_proc, ws_port, socks_port = self.start_pywssocks_server(reverse=True, connector_token=connector_token)
-            print(f"   Server started on WebSocket port: {ws_port}, SOCKS port: {socks_port}")
+            server_proc, ws_port, socks_port = self.start_pywssocks_server(
+                reverse=True, connector_token=connector_token
+            )
+            print(
+                f"   Server started on WebSocket port: {ws_port}, SOCKS port: {socks_port}"
+            )
             print(f"   Connector token: {connector_token}")
             time.sleep(2)
 
             # Start linksocks reverse client (provider)
             print("2. Starting linksocks reverse client (provider)...")
             ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={TEST_TOKEN}"
-            provider_proc, _ = self.start_linksocks_client(ws_url, reverse=True, token=TEST_TOKEN)
+            provider_proc, _ = self.start_linksocks_client(
+                ws_url, reverse=True, token=TEST_TOKEN
+            )
             print("   Provider started")
             time.sleep(3)
 
             # Start linksocks connector client with connector token
             print("3. Starting linksocks connector client...")
-            connector_ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={connector_token}"
+            connector_ws_url = (
+                f"ws://127.0.0.1:{ws_port}/socket?token={connector_token}"
+            )
             connector_proc, connector_socks_port = self.start_linksocks_client(
                 connector_ws_url, socks_port=None, reverse=False, token=connector_token
             )
@@ -998,6 +1063,7 @@ class TestRunner:
         except Exception as e:
             print(f"❌ Connector test exception: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -1006,18 +1072,26 @@ class TestRunner:
                 proc.terminate()
             self.processes.clear()
 
-    def test_connector_linksocks_server_pywssocks_provider_linksocks_connector(self) -> bool:
+    def test_connector_linksocks_server_pywssocks_provider_linksocks_connector(
+        self,
+    ) -> bool:
         """Test connector mode: linksocks server + pywssocks provider + linksocks connector"""
         print("\n" + "=" * 60)
-        print("Test 7: Connector (Linksocks Server + Pywssocks Provider + Linksocks Connector)")
+        print(
+            "Test 7: Connector (Linksocks Server + Pywssocks Provider + Linksocks Connector)"
+        )
         print("=" * 60)
-        print("Architecture: Linksocks Connector -> Linksocks Server <- Pywssocks Provider")
+        print(
+            "Architecture: Linksocks Connector -> Linksocks Server <- Pywssocks Provider"
+        )
 
         try:
             # Start linksocks server (NOT in reverse mode initially) with API enabled
             print("1. Starting linksocks server with API...")
             api_key = "test_api_key_" + str(int(time.time()))
-            server_proc, ws_port, _, returned_api_key = self.start_linksocks_server(reverse=False, api_key=api_key)
+            server_proc, ws_port, _, returned_api_key = self.start_linksocks_server(
+                reverse=False, api_key=api_key
+            )
             print(f"   Server started on WebSocket port: {ws_port}")
             print(f"   API key: {api_key}")
             time.sleep(2)
@@ -1026,7 +1100,9 @@ class TestRunner:
             print("2. Creating reverse token via HTTP API...")
             try:
                 base_url = f"http://127.0.0.1:{ws_port}"
-                reverse_token_full = self.make_api_request(base_url, api_key, "POST", "/api/token", {"type": "reverse"})["token"]
+                reverse_token_full = self.make_api_request(
+                    base_url, api_key, "POST", "/api/token", {"type": "reverse"}
+                )["token"]
                 print(f"   ✅ Reverse token created: {reverse_token_full[:16]}...")
             except Exception as e:
                 print(f"   ❌ Failed to create reverse token: {e}")
@@ -1035,14 +1111,18 @@ class TestRunner:
             # Start pywssocks reverse client (provider) with reverse token
             print("3. Starting pywssocks reverse client (provider)...")
             ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={reverse_token_full}"
-            provider_proc, _ = self.start_pywssocks_client(ws_url, reverse=True, token=None)
+            provider_proc, _ = self.start_pywssocks_client(
+                ws_url, reverse=True, token=None
+            )
             print("   Provider started")
             time.sleep(3)
 
             # Create connector token via API
             print("4. Creating connector token via HTTP API...")
             try:
-                connector_token_full = self.create_connector_token_via_api(base_url, api_key, reverse_token_full)
+                connector_token_full = self.create_connector_token_via_api(
+                    base_url, api_key, reverse_token_full
+                )
                 print(f"   ✅ Connector token created: {connector_token_full[:16]}...")
             except Exception as e:
                 print(f"   ❌ Failed to create connector token: {e}")
@@ -1050,9 +1130,14 @@ class TestRunner:
 
             # Start linksocks connector client with connector token
             print("5. Starting linksocks connector client...")
-            connector_ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={connector_token_full}"
+            connector_ws_url = (
+                f"ws://127.0.0.1:{ws_port}/socket?token={connector_token_full}"
+            )
             connector_proc, connector_socks_port = self.start_linksocks_client(
-                connector_ws_url, socks_port=None, reverse=False, token=connector_token_full
+                connector_ws_url,
+                socks_port=None,
+                reverse=False,
+                token=connector_token_full,
             )
             print(f"   Connector client started on SOCKS port: {connector_socks_port}")
             time.sleep(3)
@@ -1071,6 +1156,7 @@ class TestRunner:
         except Exception as e:
             print(f"❌ Connector test exception: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -1083,7 +1169,9 @@ class TestRunner:
             # Start linksocks server (NOT in reverse mode initially) with API enabled
             print("1. Starting linksocks server with API...")
             api_key = "test_api_key_" + str(int(time.time()))
-            server_proc, ws_port, _, returned_api_key = self.start_linksocks_server(reverse=False, api_key=api_key)
+            server_proc, ws_port, _, returned_api_key = self.start_linksocks_server(
+                reverse=False, api_key=api_key
+            )
             print(f"   Server started on WebSocket port: {ws_port}")
             print(f"   API key: {api_key}")
             time.sleep(2)
@@ -1092,7 +1180,9 @@ class TestRunner:
             print("2. Creating reverse token via HTTP API...")
             try:
                 base_url = f"http://127.0.0.1:{ws_port}"
-                reverse_token_full = self.make_api_request(base_url, api_key, "POST", "/api/token", {"type": "reverse"})["token"]
+                reverse_token_full = self.make_api_request(
+                    base_url, api_key, "POST", "/api/token", {"type": "reverse"}
+                )["token"]
                 print(f"   ✅ Reverse token created: {reverse_token_full[:16]}...")
             except Exception as e:
                 print(f"   ❌ Failed to create reverse token: {e}")
@@ -1108,7 +1198,9 @@ class TestRunner:
             # Create connector token via API
             print("4. Creating connector token via HTTP API...")
             try:
-                connector_token_full = self.create_connector_token_via_api(base_url, api_key, reverse_token_full)
+                connector_token_full = self.create_connector_token_via_api(
+                    base_url, api_key, reverse_token_full
+                )
                 print(f"   ✅ Connector token created: {connector_token_full[:16]}...")
             except Exception as e:
                 print(f"   ❌ Failed to create connector token: {e}")
@@ -1116,9 +1208,14 @@ class TestRunner:
 
             # Start linksocks connector client with connector token
             print("5. Starting linksocks connector client...")
-            connector_ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={connector_token_full}"
+            connector_ws_url = (
+                f"ws://127.0.0.1:{ws_port}/socket?token={connector_token_full}"
+            )
             connector_proc, connector_socks_port = self.start_linksocks_client(
-                connector_ws_url, socks_port=None, reverse=False, token=connector_token_full
+                connector_ws_url,
+                socks_port=None,
+                reverse=False,
+                token=connector_token_full,
             )
             print(f"   Connector client started on SOCKS port: {connector_socks_port}")
             time.sleep(3)
@@ -1137,6 +1234,7 @@ class TestRunner:
         except Exception as e:
             print(f"❌ Connector test exception: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -1145,18 +1243,26 @@ class TestRunner:
                 proc.terminate()
             self.processes.clear()
 
-    def test_connector_linksocks_server_pywssocks_provider_pywssocks_connector(self) -> bool:
+    def test_connector_linksocks_server_pywssocks_provider_pywssocks_connector(
+        self,
+    ) -> bool:
         """Test connector mode: linksocks server + pywssocks provider + pywssocks connector"""
         print("\n" + "=" * 60)
-        print("Test 8: Connector (Linksocks Server + Pywssocks Provider + Pywssocks Connector)")
+        print(
+            "Test 8: Connector (Linksocks Server + Pywssocks Provider + Pywssocks Connector)"
+        )
         print("=" * 60)
-        print("Architecture: Pywssocks Connector -> Linksocks Server <- Pywssocks Provider")
+        print(
+            "Architecture: Pywssocks Connector -> Linksocks Server <- Pywssocks Provider"
+        )
 
         try:
             # Start linksocks server (NOT in reverse mode initially) with API enabled
             print("1. Starting linksocks server with API...")
             api_key = "test_api_key_" + str(int(time.time()))
-            server_proc, ws_port, _, returned_api_key = self.start_linksocks_server(reverse=False, api_key=api_key)
+            server_proc, ws_port, _, returned_api_key = self.start_linksocks_server(
+                reverse=False, api_key=api_key
+            )
             print(f"   Server started on WebSocket port: {ws_port}")
             print(f"   API key: {api_key}")
             time.sleep(2)
@@ -1165,7 +1271,9 @@ class TestRunner:
             print("2. Creating reverse token via HTTP API...")
             try:
                 base_url = f"http://127.0.0.1:{ws_port}"
-                reverse_token_full = self.make_api_request(base_url, api_key, "POST", "/api/token", {"type": "reverse"})["token"]
+                reverse_token_full = self.make_api_request(
+                    base_url, api_key, "POST", "/api/token", {"type": "reverse"}
+                )["token"]
                 print(f"   ✅ Reverse token created: {reverse_token_full[:16]}...")
             except Exception as e:
                 print(f"   ❌ Failed to create reverse token: {e}")
@@ -1174,14 +1282,18 @@ class TestRunner:
             # Start pywssocks reverse client (provider) with reverse token
             print("3. Starting pywssocks reverse client (provider)...")
             ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={reverse_token_full}"
-            provider_proc, _ = self.start_pywssocks_client(ws_url, reverse=True, token=reverse_token_full)
+            provider_proc, _ = self.start_pywssocks_client(
+                ws_url, reverse=True, token=reverse_token_full
+            )
             print("   Provider started")
             time.sleep(3)
 
             # Create connector token via API
             print("4. Creating connector token via HTTP API...")
             try:
-                connector_token_full = self.create_connector_token_via_api(base_url, api_key, reverse_token_full)
+                connector_token_full = self.create_connector_token_via_api(
+                    base_url, api_key, reverse_token_full
+                )
                 print(f"   ✅ Connector token created: {connector_token_full[:16]}...")
             except Exception as e:
                 print(f"   ❌ Failed to create connector token: {e}")
@@ -1189,9 +1301,14 @@ class TestRunner:
 
             # Start pywssocks connector client with connector token
             print("5. Starting pywssocks connector client...")
-            connector_ws_url = f"ws://127.0.0.1:{ws_port}/socket?token={connector_token_full}"
+            connector_ws_url = (
+                f"ws://127.0.0.1:{ws_port}/socket?token={connector_token_full}"
+            )
             connector_proc, connector_socks_port = self.start_pywssocks_client(
-                connector_ws_url, socks_port=None, reverse=False, token=connector_token_full
+                connector_ws_url,
+                socks_port=None,
+                reverse=False,
+                token=connector_token_full,
             )
             print(f"   Connector client started on SOCKS port: {connector_socks_port}")
             time.sleep(3)
@@ -1210,6 +1327,7 @@ class TestRunner:
         except Exception as e:
             print(f"❌ Connector test exception: {e}")
             import traceback
+
             traceback.print_exc()
             return False
         finally:
@@ -1244,18 +1362,26 @@ class TestRunner:
             test3_result = self.test_reverse_proxy_pywssocks_to_linksocks()
             time.sleep(2)
             test4_result = self.test_reverse_proxy_linksocks_to_pywssocks()
-            
+
             print("\n" + "=" * 60)
             print("CONNECTOR MODE TESTS (3-Tier Architecture)")
             print("=" * 60)
             time.sleep(2)
-            test5_result = self.test_connector_pywssocks_server_pywssocks_provider_linksocks_connector()
+            test5_result = (
+                self.test_connector_pywssocks_server_pywssocks_provider_linksocks_connector()
+            )
             time.sleep(2)
-            test6_result = self.test_connector_pywssocks_server_linksocks_provider_linksocks_connector()
+            test6_result = (
+                self.test_connector_pywssocks_server_linksocks_provider_linksocks_connector()
+            )
             time.sleep(2)
-            test7_result = self.test_connector_linksocks_server_pywssocks_provider_linksocks_connector()
+            test7_result = (
+                self.test_connector_linksocks_server_pywssocks_provider_linksocks_connector()
+            )
             time.sleep(2)
-            test8_result = self.test_connector_linksocks_server_pywssocks_provider_pywssocks_connector()
+            test8_result = (
+                self.test_connector_linksocks_server_pywssocks_provider_pywssocks_connector()
+            )
 
             # Summary
             print("\n" + "=" * 60)
@@ -1292,16 +1418,20 @@ class TestRunner:
             basic_proxy_success = (
                 test1_result and test2_result and test3_result and test4_result
             )
-            
+
             # Connector tests are incomplete due to CLI limitations, not protocol issues
-            connector_tests_incomplete = not (test5_result or test6_result or test7_result or test8_result)
-            
-            print(
-                f"\n{'=' * 60}"
+            connector_tests_incomplete = not (
+                test5_result or test6_result or test7_result or test8_result
             )
-            print(f"Basic Proxy Compatibility: {'✅ COMPATIBLE' if basic_proxy_success else '❌ INCOMPATIBLE'}")
+
+            print(f"\n{'=' * 60}")
+            print(
+                f"Basic Proxy Compatibility: {'✅ COMPATIBLE' if basic_proxy_success else '❌ INCOMPATIBLE'}"
+            )
             if connector_tests_incomplete:
-                print(f"Connector Mode: ⚠️  INCOMPLETE (CLI limitations, not protocol issues)")
+                print(
+                    f"Connector Mode: ⚠️  INCOMPLETE (CLI limitations, not protocol issues)"
+                )
             print(
                 f"\nOverall Assessment: {'✅ Compatible for production use' if basic_proxy_success else '❌ Not compatible'}"
             )
@@ -1339,10 +1469,11 @@ class TestRunner:
 def main():
     """Main function"""
     import io
+
     if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-    
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
+
     try:
         # Run tests
         with TestRunner() as runner:
@@ -1387,6 +1518,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Test failed with exception: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 
