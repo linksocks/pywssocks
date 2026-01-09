@@ -326,7 +326,9 @@ class WSSocksServer(Relay):
 
         # Manage SOCKS server port allocation
         self._socket_manager = SocketManager(
-            socks_host, grace=socks_grace, logger=self._log
+            socks_host,
+            grace=socks_grace,
+            logger=_default_logger.getChild("socket_manager"),
         )
 
         # Manage connector connections and channels
