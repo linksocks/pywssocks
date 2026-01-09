@@ -3,7 +3,8 @@ import asyncio
 import socket
 import logging
 import uuid
-from urllib.parse import urlparse, urlunparse
+import hashlib
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 import ssl
 
 from websockets.exceptions import ConnectionClosed
@@ -144,6 +145,56 @@ class WSSocksClient(Relay):
 
         return urlunparse(
             (scheme, parsed.netloc, path, parsed.params, parsed.query, parsed.fragment)
+        )
+
+    def _build_ws_url_with_auth(self, instance: uuid.UUID) -> str:
+        """Build WebSocket URL with authentication parameters in query string.
+        
+        This method adds token (as SHA256 hash), reverse flag, and instance ID
+        to the URL query parameters for compatibility with linksocks server.
+        
+        If the URL already contains a token parameter, it will be converted to
+        SHA256 hash if it's not already a 64-character hex string.
+        """
+        parsed = urlparse(self._ws_url)
+        
+        # Only add auth params for /socket path
+        if parsed.path != "/socket":
+            return self._ws_url
+        
+        # Parse existing query parameters
+        query_params = parse_qs(parsed.query)
+        
+        # Determine the token to use
+        if "token" in query_params:
+            # URL has token parameter - use it instead of self._token
+            url_token = query_params["token"][0]
+            # Check if it's already a SHA256 hash (64 hex characters)
+            if len(url_token) == 64 and all(c in '0123456789abcdefABCDEF' for c in url_token):
+                token_hash = url_token
+            else:
+                # Convert to SHA256 hash
+                token_hash = hashlib.sha256(url_token.encode()).hexdigest()
+        else:
+            # No token in URL - use self._token
+            token_hash = hashlib.sha256(self._token.encode()).hexdigest()
+        
+        # Build new query parameters
+        new_params = {
+            "token": token_hash,
+            "reverse": "true" if self._reverse else "false",
+            "instance": str(instance),
+        }
+        
+        # Merge with existing params (except token which we've already handled)
+        for key, values in query_params.items():
+            if key not in new_params:
+                new_params[key] = values[0] if len(values) == 1 else values
+        
+        new_query = urlencode(new_params)
+        
+        return urlunparse(
+            (parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment)
         )
 
     async def _message_dispatcher(self, websocket: ClientConnection) -> None:
@@ -288,8 +339,13 @@ class WSSocksClient(Relay):
                 asyncio.create_task(self._run_socks_server())
             while True:
                 try:
+                    # Generate instance ID for this connection
+                    instance = uuid.uuid4()
+                    # Build URL with auth parameters for linksocks compatibility
+                    ws_url_with_auth = self._build_ws_url_with_auth(instance)
+                    
                     async with connect(
-                        self._ws_url,
+                        ws_url_with_auth,
                         logger=self._log.getChild("ws"),
                         ssl=self._ssl_context(),
                     ) as websocket:
@@ -305,7 +361,7 @@ class WSSocksClient(Relay):
                         self._message_queues["auth"] = auth_queue
 
                         auth_msg = AuthMessage(
-                            token=self._token, reverse=False, instance=uuid.uuid4()
+                            token=self._token, reverse=False, instance=instance
                         )
                         self.log_message(auth_msg, "send")
                         await websocket.send(pack_message(auth_msg))
@@ -402,8 +458,13 @@ class WSSocksClient(Relay):
         try:
             while True:
                 try:
+                    # Generate instance ID for this connection
+                    instance = uuid.uuid4()
+                    # Build URL with auth parameters for linksocks compatibility
+                    ws_url_with_auth = self._build_ws_url_with_auth(instance)
+                    
                     async with connect(
-                        self._ws_url,
+                        ws_url_with_auth,
                         logger=self._log.getChild("ws"),
                         ssl=(self._ssl_context()),
                     ) as websocket:
@@ -414,7 +475,7 @@ class WSSocksClient(Relay):
                         self._message_queues["auth"] = auth_queue
 
                         auth_msg = AuthMessage(
-                            token=self._token, reverse=True, instance=uuid.uuid4()
+                            token=self._token, reverse=True, instance=instance
                         )
                         self.log_message(auth_msg, "send")
                         await websocket.send(pack_message(auth_msg))
