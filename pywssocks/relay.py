@@ -83,7 +83,7 @@ class Relay:
         self._upstream_username = upstream_username
         self._upstream_password = upstream_password
         self._upstream_proxy_type = upstream_proxy_type
-        
+
         # Warn about HTTP proxy UDP limitation
         if upstream_proxy and upstream_proxy_type == "http":
             self._log.warning(
@@ -1113,16 +1113,17 @@ class Relay:
             # Build HTTP CONNECT request
             connect_request = f"CONNECT {target_addr}:{target_port} HTTP/1.1\r\n"
             connect_request += f"Host: {target_addr}:{target_port}\r\n"
-            
+
             # Add proxy authentication if provided
             if self._upstream_username and self._upstream_password:
                 import base64
+
                 credentials = f"{self._upstream_username}:{self._upstream_password}"
                 encoded = base64.b64encode(credentials.encode()).decode()
                 connect_request += f"Proxy-Authorization: Basic {encoded}\r\n"
-            
+
             connect_request += "\r\n"
-            
+
             await loop.sock_sendall(sock, connect_request.encode())
 
             # Read response (read until we get \r\n\r\n)
@@ -1137,10 +1138,10 @@ class Relay:
             response_str = response.decode("utf-8", errors="ignore")
             status_line = response_str.split("\r\n")[0]
             parts = status_line.split(" ", 2)
-            
+
             if len(parts) < 2:
                 raise Exception(f"Invalid proxy response: {status_line}")
-            
+
             status_code = int(parts[1])
             if status_code != 200:
                 reason = parts[2] if len(parts) > 2 else "Unknown"

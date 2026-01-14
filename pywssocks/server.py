@@ -49,15 +49,15 @@ class ConnectorCache:
     """Cache for managing connector connections and channels"""
 
     def __init__(self):
-        self._channel_id_to_client: dict[UUID, ServerConnection] = (
-            {}
-        )  # Maps channel_id to reverse client WebSocket
-        self._channel_id_to_connector: dict[UUID, ServerConnection] = (
-            {}
-        )  # Maps channel_id to connector WebSocket
-        self._token_cache: dict[str, list[UUID]] = (
-            {}
-        )  # Maps token to list of channel_ids
+        self._channel_id_to_client: dict[
+            UUID, ServerConnection
+        ] = {}  # Maps channel_id to reverse client WebSocket
+        self._channel_id_to_connector: dict[
+            UUID, ServerConnection
+        ] = {}  # Maps channel_id to connector WebSocket
+        self._token_cache: dict[
+            str, list[UUID]
+        ] = {}  # Maps token to list of channel_ids
         self._lock = asyncio.Lock()
 
     async def add_channel(
@@ -112,9 +112,9 @@ class SocketManager:
         """
         self._host = host
         self._grace = grace
-        self._sockets: dict[int, tuple[socket.socket, float, int]] = (
-            {}
-        )  # port -> (socket, timestamp, refs)
+        self._sockets: dict[
+            int, tuple[socket.socket, float, int]
+        ] = {}  # port -> (socket, timestamp, refs)
         self._lock = asyncio.Lock()
         self._cleanup_tasks: set[asyncio.Task] = set()
         self._log = logger or _default_logger
@@ -811,9 +811,9 @@ class WSSocksServer(Relay):
                     # Set up the internal token
                     self._token_indexes[internal_token] = 0
                     self._token_options[internal_token] = self._token_options[token]
-                    self._tokens[internal_token] = (
-                        -1
-                    )  # Use -1 to indicate no SOCKS port
+                    self._tokens[
+                        internal_token
+                    ] = -1  # Use -1 to indicate no SOCKS port
                     self._token_locks[internal_token] = asyncio.Lock()
 
                     # Initialize token clients list

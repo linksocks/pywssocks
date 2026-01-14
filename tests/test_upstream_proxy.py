@@ -96,7 +96,7 @@ class MockHTTPProxy:
                 if not auth_header:
                     conn.sendall(
                         b"HTTP/1.1 407 Proxy Authentication Required\r\n"
-                        b"Proxy-Authenticate: Basic realm=\"proxy\"\r\n\r\n"
+                        b'Proxy-Authenticate: Basic realm="proxy"\r\n\r\n'
                     )
                     return
 

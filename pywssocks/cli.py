@@ -54,13 +54,13 @@ def parse_proxy(proxy_url: str) -> Tuple[str, Optional[str], Optional[str], str]
 
 def parse_socks_proxy(proxy_url: str) -> Tuple[str, Optional[str], Optional[str]]:
     """Parse a SOCKS5 proxy URL (backward compatibility wrapper).
-    
+
     Args:
         proxy_url: URL string in format socks5://[user:pass@]host[:port]
-        
+
     Returns:
         Tuple of (address, username, password)
-        
+
     Raises:
         ValueError: If URL is invalid or scheme is not socks5
     """
@@ -152,9 +152,12 @@ def _client_cli(
         init_logging(level=logging.DEBUG if debug else logging.INFO)
 
         if upstream_proxy:
-            upstream_host, upstream_username, upstream_password, upstream_type = parse_proxy(
-                upstream_proxy
-            )
+            (
+                upstream_host,
+                upstream_username,
+                upstream_password,
+                upstream_type,
+            ) = parse_proxy(upstream_proxy)
         else:
             upstream_host = upstream_username = upstream_password = upstream_type = None
 
