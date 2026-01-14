@@ -65,21 +65,30 @@ class Relay:
         upstream_proxy: Optional[str] = None,
         upstream_username: Optional[str] = None,
         upstream_password: Optional[str] = None,
+        upstream_proxy_type: Optional[str] = None,
     ):
         """
         Args:
             logger: Optional logger instance for relay operations. If not provided,
                    a default logger will be used.
             buffer_size: Size of the buffer used for data transfer. Defaults to 32KB.
-            upstream_proxy: Optional SOCKS5 proxy to use for outgoing connections (format: host:port)
-            upstream_username: Optional username for upstream SOCKS5 proxy authentication
-            upstream_password: Optional password for upstream SOCKS5 proxy authentication
+            upstream_proxy: Optional proxy to use for outgoing connections (format: host:port)
+            upstream_username: Optional username for upstream proxy authentication
+            upstream_password: Optional password for upstream proxy authentication
+            upstream_proxy_type: Proxy type: 'socks5' or 'http'. Auto-detected if None.
         """
         self._log = logger or _default_logger
         self._buf_size = buffer_size
         self._upstream_proxy = upstream_proxy
         self._upstream_username = upstream_username
         self._upstream_password = upstream_password
+        self._upstream_proxy_type = upstream_proxy_type
+        
+        # Warn about HTTP proxy UDP limitation
+        if upstream_proxy and upstream_proxy_type == "http":
+            self._log.warning(
+                "HTTP proxy does not support UDP. UDP connections will be made directly without proxy."
+            )
 
         # Map channel_id to message queues
         self._message_queues: Dict[str, asyncio.Queue] = {}
@@ -451,13 +460,19 @@ class Relay:
                 )
 
             if self._upstream_proxy:
-                # Connect through upstream SOCKS5 proxy
+                # Connect through upstream proxy
+                proxy_type = self._upstream_proxy_type or "socks5"
                 self._log.debug(
-                    f"Connecting to {request_msg.address}:{request_msg.port} through upstream proxy {self._upstream_proxy}"
+                    f"Connecting to {request_msg.address}:{request_msg.port} through {proxy_type} proxy {self._upstream_proxy}"
                 )
-                remote_socket = await self._connect_via_socks5(
-                    request_msg.address, request_msg.port
-                )
+                if proxy_type == "http":
+                    remote_socket = await self._connect_via_http(
+                        request_msg.address, request_msg.port
+                    )
+                else:
+                    remote_socket = await self._connect_via_socks5(
+                        request_msg.address, request_msg.port
+                    )
             else:
                 # Direct connection
                 # Determine address family and resolved address based on address format
@@ -1059,3 +1074,80 @@ class Relay:
         except Exception as e:
             sock.close()
             raise Exception(f"SOCKS5 connection failed: {str(e)}")
+
+    async def _connect_via_http(
+        self, target_addr: str, target_port: int
+    ) -> socket.socket:
+        """Connect to target through upstream HTTP CONNECT proxy.
+
+        Args:
+            target_addr: Target address to connect to
+            target_port: Target port to connect to
+
+        Returns:
+            Connected socket through HTTP proxy
+
+        Raises:
+            Exception: If connection fails
+        """
+        if not self._upstream_proxy:
+            raise ValueError("No upstream proxy configured")
+
+        loop = asyncio.get_running_loop()
+        host, port = self._upstream_proxy.split(":")
+        port = int(port)
+
+        # Create socket and connect to proxy
+        try:
+            # Try IPv6 first
+            sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            sock.setblocking(False)
+            await loop.sock_connect(sock, (host, port))
+        except:
+            # Fallback to IPv4
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setblocking(False)
+            await loop.sock_connect(sock, (host, port))
+
+        try:
+            # Build HTTP CONNECT request
+            connect_request = f"CONNECT {target_addr}:{target_port} HTTP/1.1\r\n"
+            connect_request += f"Host: {target_addr}:{target_port}\r\n"
+            
+            # Add proxy authentication if provided
+            if self._upstream_username and self._upstream_password:
+                import base64
+                credentials = f"{self._upstream_username}:{self._upstream_password}"
+                encoded = base64.b64encode(credentials.encode()).decode()
+                connect_request += f"Proxy-Authorization: Basic {encoded}\r\n"
+            
+            connect_request += "\r\n"
+            
+            await loop.sock_sendall(sock, connect_request.encode())
+
+            # Read response (read until we get \r\n\r\n)
+            response = b""
+            while b"\r\n\r\n" not in response:
+                chunk = await loop.sock_recv(sock, 1024)
+                if not chunk:
+                    raise Exception("Connection closed while reading proxy response")
+                response += chunk
+
+            # Parse response status line
+            response_str = response.decode("utf-8", errors="ignore")
+            status_line = response_str.split("\r\n")[0]
+            parts = status_line.split(" ", 2)
+            
+            if len(parts) < 2:
+                raise Exception(f"Invalid proxy response: {status_line}")
+            
+            status_code = int(parts[1])
+            if status_code != 200:
+                reason = parts[2] if len(parts) > 2 else "Unknown"
+                raise Exception(f"Proxy CONNECT failed: {status_code} {reason}")
+
+            return sock
+
+        except Exception as e:
+            sock.close()
+            raise Exception(f"HTTP CONNECT failed: {str(e)}")

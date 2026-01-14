@@ -5,29 +5,30 @@ import logging
 import click
 
 
-def parse_socks_proxy(proxy_url: str) -> Tuple[str, Optional[str], Optional[str]]:
+def parse_proxy(proxy_url: str) -> Tuple[str, Optional[str], Optional[str], str]:
     import urllib.parse
 
-    """Parse a SOCKS5 proxy URL and return address, username, and password.
+    """Parse a proxy URL and return address, username, password, and type.
     
     Args:
-        proxy_url: URL string in format socks5://[user:pass@]host[:port]
+        proxy_url: URL string in format scheme://[user:pass@]host[:port]
+                   Supported schemes: socks5, http, https
         
     Returns:
-        Tuple of (address, username, password)
+        Tuple of (address, username, password, proxy_type)
         
     Raises:
-        ValueError: If URL is invalid or scheme is not socks5
+        ValueError: If URL is invalid or scheme is not supported
     """
     if not proxy_url:
-        return "", None, None
+        return "", None, None, ""
 
     try:
         u = urllib.parse.urlparse(proxy_url)
     except Exception as e:
         raise ValueError(f"Invalid proxy URL: {e}")
 
-    if u.scheme != "socks5":
+    if u.scheme not in ("socks5", "http", "https"):
         raise ValueError(f"Unsupported proxy scheme: {u.scheme}")
 
     # Get authentication info
@@ -40,9 +41,32 @@ def parse_socks_proxy(proxy_url: str) -> Tuple[str, Optional[str], Optional[str]
 
     # Build address with default port if needed
     host = u.hostname
-    port = u.port or 1080
+    if u.scheme == "socks5":
+        port = u.port or 1080
+        proxy_type = "socks5"
+    else:
+        port = u.port or 8080
+        proxy_type = "http"
     address = f"{host}:{port}"
 
+    return address, username, password, proxy_type
+
+
+def parse_socks_proxy(proxy_url: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """Parse a SOCKS5 proxy URL (backward compatibility wrapper).
+    
+    Args:
+        proxy_url: URL string in format socks5://[user:pass@]host[:port]
+        
+    Returns:
+        Tuple of (address, username, password)
+        
+    Raises:
+        ValueError: If URL is invalid or scheme is not socks5
+    """
+    address, username, password, proxy_type = parse_proxy(proxy_url)
+    if proxy_type and proxy_type != "socks5":
+        raise ValueError(f"Expected socks5 proxy, got: {proxy_type}")
     return address, username, password
 
 
@@ -92,7 +116,7 @@ def cli():
     "--upstream-proxy",
     "-x",
     default=None,
-    help="Upstream SOCKS5 proxy (e.g., socks5://user:pass@127.0.0.1:1080)",
+    help="Upstream proxy (e.g., socks5://user:pass@127.0.0.1:1080 or http://127.0.0.1:8080)",
 )
 @click.option(
     "--connector-token",
@@ -128,11 +152,11 @@ def _client_cli(
         init_logging(level=logging.DEBUG if debug else logging.INFO)
 
         if upstream_proxy:
-            upstream_host, upstream_username, upstream_password = parse_socks_proxy(
+            upstream_host, upstream_username, upstream_password, upstream_type = parse_proxy(
                 upstream_proxy
             )
         else:
-            upstream_host = upstream_username = upstream_password = None
+            upstream_host = upstream_username = upstream_password = upstream_type = None
 
         # Start server
         client = WSSocksClient(
@@ -148,6 +172,7 @@ def _client_cli(
             upstream_proxy=upstream_host,
             upstream_username=upstream_username,
             upstream_password=upstream_password,
+            upstream_proxy_type=upstream_type,
             ignore_ssl=ignore_ssl,
         )
 
@@ -202,7 +227,7 @@ def _client_cli(
     "--upstream-proxy",
     "-x",
     default=None,
-    help="Upstream SOCKS5 proxy (e.g., socks5://user:pass@127.0.0.1:1080)",
+    help="Upstream proxy (e.g., socks5://user:pass@127.0.0.1:1080 or http://127.0.0.1:8080)",
 )
 @click.option(
     "--connector-token",

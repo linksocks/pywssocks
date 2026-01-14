@@ -53,6 +53,10 @@ class WSSocksClient(Relay):
         reconnect_interval: float = 5,
         ignore_ssl: bool = False,
         logger: Optional[logging.Logger] = None,
+        upstream_proxy: Optional[str] = None,
+        upstream_username: Optional[str] = None,
+        upstream_password: Optional[str] = None,
+        upstream_proxy_type: Optional[str] = None,
         **kw,
     ) -> None:
         """
@@ -68,8 +72,19 @@ class WSSocksClient(Relay):
             reconnect: Automatically reconnect to the server
             reconnect_interval: Interval between reconnection trials
             logger: Custom logger instance
+            upstream_proxy: Upstream proxy address (host:port)
+            upstream_username: Upstream proxy username
+            upstream_password: Upstream proxy password
+            upstream_proxy_type: Upstream proxy type ('socks5' or 'http')
         """
-        super().__init__(logger=logger, **kw)
+        super().__init__(
+            logger=logger,
+            upstream_proxy=upstream_proxy,
+            upstream_username=upstream_username,
+            upstream_password=upstream_password,
+            upstream_proxy_type=upstream_proxy_type,
+            **kw,
+        )
 
         self._ws_url: str = self._convert_ws_path(ws_url)
         self._token: str = token
